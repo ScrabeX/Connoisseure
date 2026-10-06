@@ -10,9 +10,23 @@ Während einer laufenden Fressung bleiben alle Bewertungen verborgen, bis das ak
 
 Die vier Bewertungskategorien erlauben weiterhin 0 bis 5 Sterne in 0,5er-Schritten: links auf einen Stern tippen für den halben Wert, rechts für den ganzen Wert; **0** setzt null Sterne. Mit Tab wird jede Kategorie erreicht, Pfeiltasten ändern den Wert um 0,5, **Pos1** setzt 0 und **Ende** setzt 5. Enter/Leertaste auf einem Stern wählt den ganzen Wert. Aktueller Wert und Halbsterne bleiben sichtbar. Dialoge unterstützen Escape, halten den Tastaturfokus und geben ihn beim Schließen zurück. Fehlermeldungen bleiben bis zur nächsten Aktion beziehungsweise bis zum Schließen sichtbar.
 
+Für den Restaurant-Score, Gruppen-Durchschnitt und das Leaderboard wird **Essen dreifach** gewichtet; Service, Ambiente und Preis-Leistung zählen jeweils einfach. Die Einzelwerte der Kategorien bleiben unverändert. Die Gewichtung ist bei Essen mit `x3` markiert.
+
 Goldene Fokusrahmen werden nicht verwendet. Bei Tastaturbedienung markieren dezente Unterstreichungen beziehungsweise Hintergrundtöne den aktiven Control; automatischer Fokus, Mausklicks und Touch erzeugen keine zusätzlichen Markierungsrahmen. Formularränder und die Auswahl der Teilnehmenden bleiben erhalten.
 
 ## Lokale Oberflächenprüfung
+
+### Website lokal im Browser ansehen
+
+Wechsle zuerst in den Branch, den du prüfen möchtest (zum Beispiel `git switch dev`). Im Repository-Ordner startest du dann in PowerShell den statischen Webserver:
+
+```powershell
+py -m http.server 8000
+```
+
+Öffne `http://localhost:8000` im Browser. Nach Änderungen an `index.html`, `styles.css` oder `app.js` kannst du die Seite neu laden; ein Build-Schritt ist nicht erforderlich. Mit **Strg+C** im Terminal beendest du den Server. Der Preview ist nur auf deinem Rechner erreichbar.
+
+Wichtig: Die lokal gestartete Website verwendet bei Login und Aktionen weiterhin das konfigurierte Supabase-Projekt. Für isolierte UI-Prüfungen ohne echte Datenbankaktionen nutze die nachfolgend beschriebenen Browserchecks; sie ersetzen Supabase und OpenStreetMap durch Testdaten.
 
 Die Website selbst benötigt keine npm-Abhängigkeiten. Die optionalen Browserchecks in `tests/` nutzen nur Playwright als Entwicklungswerkzeug:
 
@@ -46,6 +60,8 @@ Die kurzen Viewport-Checks simulieren den verbleibenden Platz bei geöffneter Bi
 3. Änderungen nach `main` pushen. Der Workflow **Deploy static site to GitHub Pages** veröffentlicht die Seite; alternativ lässt er sich unter **Actions** manuell starten.
 
 Die Projektseite ist anschließend unter `https://scrabex.github.io/Connoisseure/` erreichbar. Das Frontend verwendet derzeit keine root-absoluten Asset- oder Navigationspfade und funktioniert daher auch unter dem Repository-Unterpfad.
+
+Der Pages-Workflow veröffentlicht nur Änderungen auf `main`; Pushes auf `dev` aktualisieren die öffentliche Projektseite nicht.
 
 ## Supabase
 

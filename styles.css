@@ -219,6 +219,7 @@ a { color: var(--sage-dark); text-underline-offset: 3px; overflow-wrap: anywhere
 .rating-list { display: grid; gap: 18px; }
 .rating-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 16px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
 .rating-label { font-weight: 650; }
+.rating-weight { color: var(--muted); font-size: 11px; font-weight: 500; white-space: nowrap; }
 .rating-value { font-size: 13px; color: var(--muted); text-align: right; }
 .rating-stars { display: flex; gap: 4px; grid-column: 1 / -1; }
 .rating-stars button { min-width: 44px; width: 44px; height: 44px; padding: 0; background: transparent; }

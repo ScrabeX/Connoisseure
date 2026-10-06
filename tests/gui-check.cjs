@@ -431,7 +431,7 @@ async function rateAll(page, value) {
       assert.equal(await page.evaluate(id => window.__fixture.db.meals.find(meal => meal.id === id).status, created.id), 'completed');
       await navigate(page, 'history');
       await page.locator(`#history [data-action="details"][data-id="${created.id}"]`).click();
-      assert.match(await page.locator('.detail-reviews').textContent(), /Restaurant-Ø: 2,0/);
+      assert.match(await page.locator('.detail-reviews').textContent(), /Restaurant-Ø \(Essen x3 gewichtet\): 1,3/);
       assert.equal(await page.locator('.creator-badge').count(), 1);
       const submissions = await page.evaluate(() => window.__fixture.calls.filter(call => call.rpc === 'submit_meal_rating'));
       assert.deepEqual(categories.map(key => submissions[1].args[`p_${key}`]), [0, 0.5, 5, 2.5]);
@@ -474,7 +474,7 @@ async function rateAll(page, value) {
       };
       try {
         assert.match(await page.locator('#pendingList').textContent(), /2 von 3 Bewertungen/);
-        assert.equal(await page.locator('#dashboardGroupAverage').textContent(), '2,0 ★');
+        assert.equal(await page.locator('#dashboardGroupAverage').textContent(), '1,3 ★');
         await openDetails();
         await reviewsHidden();
         assert.match(await details.textContent(), /Bewertungen werden sichtbar, sobald du selbst bewertet hast/);
@@ -518,7 +518,7 @@ async function rateAll(page, value) {
         for (const comment of [creatorComment, participantComment, finalComment]) {
           assert.ok((await details.textContent()).includes(comment));
         }
-        assert.match(await details.textContent(), /Restaurant-Ø: 2,5/);
+        assert.match(await details.textContent(), /Restaurant-Ø \(Essen x3 gewichtet\): 2,2/);
         assert.equal(await details.locator('.rating-summary').count(), 1);
         await geometry(page, `completed reviews ${width}`);
         await screenshot(page, `${width}-reviews-after-completion`);
@@ -533,7 +533,7 @@ async function rateAll(page, value) {
   await check('completed-only statistics, tied ranks, no external score and history/navigation', async () => {
     const {page, context} = await open();
     try {
-      assert.equal(await page.locator('#dashboardGroupAverage').textContent(), '2,0 ★');
+      assert.equal(await page.locator('#dashboardGroupAverage').textContent(), '1,3 ★');
       assert.equal(await page.locator('#dashboardPersonalRank').textContent(), '#1');
       assert.deepEqual(await page.locator('.rank-num').allTextContents(), ['1', '1', ...Array(10).fill('—')]);
       await navigate(page, 'stats');
@@ -583,6 +583,27 @@ async function rateAll(page, value) {
       assert.deepEqual(await page.locator('.rank-num').allTextContents(), ['1', '2', ...Array(10).fill('—')]);
       await navigate(page, 'stats');
       assert.deepEqual(await page.locator('.stats-category-value').allTextContents(), Array(4).fill('2,4 ★'));
+    } finally { await context.close(); }
+  });
+
+  await check('food has triple weight in combined scores and is labeled x3', async () => {
+    const db = data();
+    db.meals = [makeMeal('food-favorite', 'completed'), makeMeal('balanced', 'completed', 'm2', 'Balanced'),
+      makeMeal('running', 'running', 'm2')];
+    db.ratings = [makeReview('food-favorite', 'm2', [5, 1, 1, 1]),
+      makeReview('balanced', 'm3', [2, 2, 2, 2])];
+    const {page, context} = await open({db});
+    try {
+      assert.equal(await page.locator('#dashboardGroupAverage').textContent(), '2,5 ★');
+      assert.deepEqual((await page.locator('.rank-score').allTextContents()).slice(0, 2), ['3,0 ★', '2,0 ★']);
+      await page.locator('[data-action="details"][data-id="food-favorite"]').first().click();
+      assert.match(await page.locator('.detail-reviews').textContent(), /Restaurant-Ø \(Essen x3 gewichtet\): 3,0 ★/);
+      assert.equal(await page.locator('.history-result-category').first().locator('small').textContent(), 'Essen x3');
+      await navigate(page, 'stats');
+      assert.equal(await page.locator('.stats-category-label').first().textContent(), 'Essen x3');
+      await navigate(page, 'dashboard');
+      await page.locator('[data-action="rate"][data-id="running"]').click();
+      assert.equal(await page.locator('#label-food').textContent(), 'Essen x3');
     } finally { await context.close(); }
   });
 

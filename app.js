@@ -14,7 +14,7 @@
   const NOMINATIM_COOLDOWN_KEY = 'connoisseure.nominatim-cooldown-until';
   const VIEW_IDS = new Set(['dashboard', 'history', 'stats', 'details']);
   const CATEGORY_DEFS = [
-    {key: 'food', label: 'Essen'},
+    {key: 'food', label: 'Essen', weight: 3},
     {key: 'service', label: 'Service'},
     {key: 'ambience', label: 'Ambiente'},
     {key: 'value_for_money', label: 'Preis-Leistung'}
@@ -371,13 +371,23 @@
     }
   }
 
+  function weightedScore(values) {
+    const totalWeight = CATEGORY_DEFS.reduce((sum, category) => sum + (category.weight ?? 1), 0);
+    return values.reduce((sum, value, index) => sum + value * (CATEGORY_DEFS[index].weight ?? 1), 0) / totalWeight;
+  }
+
+  function renderCategoryLabel(category) {
+    const weight = category.weight ?? 1;
+    return `${category.label}${weight > 1 ? ` <span class="rating-weight" title="${weight}-fach gewichtet">x${weight}</span>` : ''}`;
+  }
+
   function mealScore(meal) {
     const externalScores = mealRatings(meal.id)
       .filter(rating => rating.member_id !== meal.creator_member_id)
       .map(rating => {
         const values = CATEGORY_DEFS.map(category => Number(rating[category.key]));
         return values.every(Number.isFinite)
-          ? values.reduce((sum, value) => sum + value, 0) / values.length
+          ? weightedScore(values)
           : null;
       })
       .filter(score => score !== null);
@@ -499,7 +509,7 @@
   }
 
   function renderRatingRow(category) {
-    return `<div class="rating-row"><span class="rating-label" id="label-${category.key}">${category.label}</span><output class="rating-value" id="value-${category.key}" aria-live="polite">Noch nicht bewertet</output><div class="rating-stars" role="group" aria-labelledby="label-${category.key}" aria-describedby="value-${category.key}" data-rating="${category.key}"></div></div>`;
+    return `<div class="rating-row"><span class="rating-label" id="label-${category.key}">${renderCategoryLabel(category)}</span><output class="rating-value" id="value-${category.key}" aria-live="polite">Noch nicht bewertet</output><div class="rating-stars" role="group" aria-labelledby="label-${category.key}" aria-describedby="value-${category.key}" data-rating="${category.key}"></div></div>`;
   }
 
   function setupRatingStars(row) {
@@ -589,7 +599,7 @@
     return `<article class="history-result-person">
       <div class="history-result-person-head">${memberAvatar(member)}<div class="history-result-person-title"><b>${escapeHtml(member.display_name)}</b>${isCreator ? '<span class="creator-badge">Ersteller · nicht im Durchschnitt</span>' : '<span class="small">Teilnehmerbewertung</span>'}</div></div>
       <div class="history-result-categories">${CATEGORY_DEFS.map((category, index) => `
-        <div class="history-result-category"><small>${category.label}</small>
+        <div class="history-result-category"><small>${renderCategoryLabel(category)}</small>
           <span class="history-result-stars" role="img" aria-label="${formatScore(values[index])} von 5 Sternen">${renderStars(values[index])}</span>
           <span class="history-result-score">${formatScore(values[index])}</span>
         </div>`).join('')}
@@ -613,8 +623,8 @@
       ? `<div class="rating-summary">${CATEGORY_DEFS.map(category => {
         const values = externalReviews.map(review => Number(review[category.key])).filter(Number.isFinite);
         const average = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
-        return `<div><b>${average === null ? '—' : `${formatScore(average)} ★`}</b>${category.label}</div>`;
-      }).join('')}</div><p class="small">Restaurant-Ø: ${score === null ? '—' : `${formatScore(score)} ★`}. Erstellerbewertungen bleiben sichtbar, zählen aber nicht in die Durchschnitte.</p>`
+        return `<div><b>${average === null ? '—' : `${formatScore(average)} ★`}</b>${renderCategoryLabel(category)}</div>`;
+      }).join('')}</div><p class="small">Restaurant-Ø (Essen x3 gewichtet): ${score === null ? '—' : `${formatScore(score)} ★`}. Erstellerbewertungen bleiben sichtbar, zählen aber nicht in die Durchschnitte.</p>`
       : meal.status === 'completed'
         ? '<p class="small">Kein Restaurant-Durchschnitt verfügbar: Es gibt keine Bewertung von einem anderen Teilnehmenden.</p>'
         : hasRated
@@ -668,7 +678,7 @@
       externalReviews.forEach(review => {
         const values = CATEGORY_DEFS.map(category => Number(review[category.key]));
         if (!values.every(Number.isFinite)) return;
-        validScores.push(values.reduce((sum, value) => sum + value, 0) / values.length);
+        validScores.push(weightedScore(values));
         values.forEach((value, index) => {
           categoryTotals[index].sum += value;
           categoryTotals[index].count += 1;
@@ -725,8 +735,8 @@
       ? categoryTotals.map((category, index) => {
         const average = category.count ? category.sum / category.count : null;
         return average === null
-          ? `<div class="stats-category"><span class="stats-category-label">${CATEGORY_DEFS[index].label}</span><span class="small">Noch keine Bewertungen</span><span class="stats-category-value">—</span></div>`
-          : `<div class="stats-category"><span class="stats-category-label">${CATEGORY_DEFS[index].label}</span><div class="progress"><i style="width:${average / 5 * 100}%"></i></div><span class="stats-category-value">${formatScore(average)} ★</span></div>`;
+          ? `<div class="stats-category"><span class="stats-category-label">${renderCategoryLabel(CATEGORY_DEFS[index])}</span><span class="small">Noch keine Bewertungen</span><span class="stats-category-value">—</span></div>`
+          : `<div class="stats-category"><span class="stats-category-label">${renderCategoryLabel(CATEGORY_DEFS[index])}</span><div class="progress"><i style="width:${average / 5 * 100}%"></i></div><span class="stats-category-value">${formatScore(average)} ★</span></div>`;
       }).join('')
       : '<div class="empty-state">Noch keine abgeschlossenen Fressungen.</div>';
     $('#memberStats').innerHTML = completedMeals.length
