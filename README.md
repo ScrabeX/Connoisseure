@@ -21,10 +21,10 @@ Goldene Fokusrahmen werden nicht verwendet. Bei Tastaturbedienung markieren deze
 Wechsle zuerst in den Branch, den du prüfen möchtest (zum Beispiel `git switch dev`). Im Repository-Ordner startest du dann in PowerShell den statischen Webserver:
 
 ```powershell
-py -m http.server 8000
+py -m http.server 8500
 ```
 
-Öffne `http://localhost:8000` im Browser. Nach Änderungen an `index.html`, `styles.css` oder `app.js` kannst du die Seite neu laden; ein Build-Schritt ist nicht erforderlich. Mit **Strg+C** im Terminal beendest du den Server. Der Preview ist nur auf deinem Rechner erreichbar.
+Öffne `http://localhost:8500` im Browser. Nach Änderungen an `index.html`, `styles.css` oder `app.js` kannst du die Seite neu laden; ein Build-Schritt ist nicht erforderlich. Mit **Strg+C** im Terminal beendest du den Server. Der Preview ist nur auf deinem Rechner erreichbar.
 
 Wichtig: Die lokal gestartete Website verwendet bei Login und Aktionen weiterhin das konfigurierte Supabase-Projekt. Für isolierte UI-Prüfungen ohne echte Datenbankaktionen nutze die nachfolgend beschriebenen Browserchecks; sie ersetzen Supabase und OpenStreetMap durch Testdaten.
 
