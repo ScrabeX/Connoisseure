@@ -9,6 +9,7 @@
   const NOMINATIM_REQUEST_INTERVAL = 1000;
   const NOMINATIM_CACHE_TTL = 24 * 60 * 60 * 1000;
   const NOMINATIM_CACHE_LIMIT = 20;
+  const OSM_INITIAL_MAP_URL = 'https://www.openstreetmap.org/export/embed.html?bbox=13.34%2C52.49%2C13.44%2C52.55&layer=mapnik';
   const NOMINATIM_CACHE_STORAGE_KEY = 'connoisseure.nominatim-search-cache';
   const NOMINATIM_RATE_LIMIT_KEY = 'connoisseure.nominatim-next-request-at';
   const NOMINATIM_COOLDOWN_KEY = 'connoisseure.nominatim-cooldown-until';
@@ -51,6 +52,9 @@
   let nominatimNextRequestAt = 0;
   let nominatimCooldownUntil = 0;
   let nominatimCacheLoaded = false;
+  let photonAutocompleteTimer;
+  let photonAutocompleteRequestId = 0;
+  let photonSuggestionCenter = {lat: 52.52, lon: 13.405};
   let currentViewId = 'dashboard';
   const nominatimSearchCache = new Map();
 
@@ -303,7 +307,8 @@
     $('#toast').hidden = true;
     dialog.showModal();
     document.body.classList.add('modal-open');
-    const firstControl = dialog.querySelector('.modal-body input:not(:disabled), .modal-body button, .modal-body textarea');
+    const firstControl = dialog.querySelector('[data-modal-initial-focus]')
+      || dialog.querySelector('.modal-body input:not(:disabled), .modal-body button, .modal-body textarea');
     firstControl?.focus();
   }
 
@@ -878,7 +883,7 @@
       $('#mealPlace').value = '';
       $('#mapsUrl').value = '';
       $('#note').value = '';
-      resetOsmSearch();
+      resetRestaurantSearch();
       await refreshAndRender();
       toast('Fressung angelegt und für die Gruppe bereitgestellt.');
     } catch (error) {
@@ -1006,11 +1011,14 @@
     $('#confirmStart').addEventListener('click', () => void startMeal());
     $('#saveRating').addEventListener('click', () => void submitRating());
     $('#saveCreate').addEventListener('click', () => void createMeal());
-    $('#restaurantSearchButton').addEventListener('click', () => void searchRestaurants());
+    $('#restaurantSearchButton').addEventListener('click', () => void searchOsmRestaurants());
+    $('#restaurantSearchQuery').addEventListener('input', schedulePhotonAutocomplete);
     $('#restaurantSearchQuery').addEventListener('keydown', event => {
       if (event.key === 'Enter') {
         event.preventDefault();
-        void searchRestaurants();
+        const firstSuggestion = $('#restaurantSearchResults .photon-result');
+        if (firstSuggestion) firstSuggestion.click();
+        else void searchPhotonAutocomplete();
       }
     });
     $('#openCreate').addEventListener('click', openCreateModal);
@@ -1070,16 +1078,28 @@
 
   function configureCreateForm() {
     $('#createModal .form-grid').innerHTML = `
-      <div class="field full restaurant-search">
-        <label for="restaurantSearchQuery">Restaurant oder Adresse auf OpenStreetMap suchen</label>
-        <div class="osm-search-form"><input id="restaurantSearchQuery" type="search" maxlength="160" autocomplete="off" placeholder="z. B. Ramen Jun, Berlin"><button class="secondary" id="restaurantSearchButton" type="button">${icon('search')}Suchen</button></div>
-        <div id="restaurantSearchStatus" class="small osm-status" role="status" aria-live="polite">Die Suche startet erst nach Klick auf Suchen.</div>
-        <div id="restaurantSearchResults" class="osm-results" aria-label="Suchergebnisse"></div>
-        <p class="osm-attribution small">Suchergebnisse: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap-Mitwirkende</a> · <a href="https://nominatim.openstreetmap.org/" target="_blank" rel="noopener noreferrer">Nominatim</a></p>
+      <section class="field full restaurant-search" aria-labelledby="restaurantSearchTitle">
+        <div class="restaurant-search-header">
+          <div><span class="eyebrow">Restaurant finden</span><h3 id="restaurantSearchTitle">Wo soll es hingehen?</h3><p class="small">Suche einen Ort aus und wir übernehmen Name, Adresse und Kartenlink.</p></div>
+        </div>
+        <div class="restaurant-finder">
+          <div class="restaurant-finder-results">
+            <label for="restaurantSearchQuery">Restaurant oder Adresse suchen</label>
+            <div class="osm-search-form"><input id="restaurantSearchQuery" type="search" maxlength="160" autocomplete="off" aria-describedby="restaurantSearchStatus" data-modal-initial-focus placeholder="z. B. Ramen Jun, Berlin"><button class="secondary" id="restaurantSearchButton" type="button">${icon('search')}Suchen</button></div>
+            <div id="restaurantSearchStatus" class="small osm-status" role="status" aria-live="polite">Photon zeigt ab drei Zeichen automatisch OSM-Restaurants; Suchen startet zusätzlich die Nominatim-Suche.</div>
+            <div id="restaurantSearchResults" class="osm-results" aria-label="Suchergebnisse"></div>
+          </div>
+          <div class="restaurant-map-card">
+            <div class="map-card-header"><div><strong>OpenStreetMap</strong><span class="map-live-badge"><i></i> KARTENANSICHT</span></div></div>
+            <iframe id="osmMapFrame" class="restaurant-map-frame" title="OpenStreetMap-Karte, zunächst Berlin" src="${OSM_INITIAL_MAP_URL}" loading="lazy" referrerpolicy="no-referrer"></iframe>
+            <div class="map-attribution small">© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap-Mitwirkende</a></div>
+          </div>
+        </div>
+        <p id="osmSearchAttribution" class="osm-attribution small">Live-Vorschläge: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap-Mitwirkende</a> · <a href="https://photon.komoot.io/" target="_blank" rel="noopener noreferrer">Photon</a>. <a href="https://nominatim.openstreetmap.org/" target="_blank" rel="noopener noreferrer">Nominatim</a> erreichst du über <strong>Suchen</strong>.</p>
       </div>
       <div class="field"><label for="restaurant">Restaurant</label><input id="restaurant" maxlength="160" placeholder="z. B. Ramen Jun" required></div>
       <div class="field"><label for="mealPlace">Ort</label><input id="mealPlace" maxlength="200" placeholder="z. B. Berlin-Kreuzberg" required></div>
-      <div class="field"><label for="mapsUrl">OpenStreetMap-Link (optional)</label><input id="mapsUrl" type="url" placeholder="https://www.openstreetmap.org/..."></div>
+      <div class="field full"><label for="mapsUrl" id="mapsUrlLabel">OpenStreetMap-Link (optional)</label><input id="mapsUrl" type="url" placeholder="https://www.openstreetmap.org/..."></div>
       <div class="field full"><label for="note">Notiz für die Gruppe (optional)</label><textarea id="note" maxlength="2000" placeholder="Warum müssen wir genau dort hin?"></textarea></div>`;
     $('#createModal .form-grid').insertAdjacentHTML('beforeend', '<div class="field full"><label for="creatorName">Ersteller · dein ausgewähltes Profil</label><input id="creatorName" value="" disabled></div>');
   }
@@ -1200,6 +1220,8 @@
   }
 
   function selectOsmPlace(result, selectedButton) {
+    clearTimeout(photonAutocompleteTimer);
+    photonAutocompleteRequestId += 1;
     const address = String(result.display_name || '').trim();
     const name = osmPlaceName(result);
     if (!address || !name) return;
@@ -1207,12 +1229,23 @@
     const longitude = Number(result.lon);
     const hasCoordinates = Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
       && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
+    if (hasCoordinates) photonSuggestionCenter = {lat: latitude, lon: longitude};
     const mapsUrl = hasCoordinates
       ? `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=18/${latitude}/${longitude}`
       : `https://www.openstreetmap.org/search?query=${encodeURIComponent(address)}`;
     $('#restaurant').value = name;
     $('#mealPlace').value = address;
     $('#mapsUrl').value = mapsUrl;
+    if (hasCoordinates) {
+      const west = Math.max(-180, longitude - 0.008);
+      const south = Math.max(-90, latitude - 0.005);
+      const east = Math.min(180, longitude + 0.008);
+      const north = Math.min(90, latitude + 0.005);
+      const bbox = [west, south, east, north].map(value => value.toFixed(6)).join(',');
+      const marker = `${latitude.toFixed(6)},${longitude.toFixed(6)}`;
+      $('#osmMapFrame').src = `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${encodeURIComponent(marker)}`;
+      $('#osmMapFrame').title = `OpenStreetMap-Karte: ${name}`;
+    }
     $$('#restaurantSearchResults .osm-result').forEach(button => {
       const selected = button === selectedButton;
       button.classList.toggle('selected', selected);
@@ -1249,7 +1282,109 @@
     status.textContent = `${validResults.length} Treffer gefunden. Wähle einen Eintrag aus.`;
   }
 
-  async function searchRestaurants() {
+  function photonFeatureToPlace(feature) {
+    const properties = feature?.properties;
+    const name = String(properties?.name || properties?.brand || '').trim();
+    const coordinates = feature?.geometry?.coordinates;
+    const longitude = Number(coordinates?.[0]);
+    const latitude = Number(coordinates?.[1]);
+    if (!name || !Number.isFinite(latitude) || latitude < -90 || latitude > 90
+      || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return null;
+    const street = [properties.street, properties.housenumber].filter(Boolean).join(' ');
+    const town = [properties.postcode, properties.city || properties.locality || properties.district]
+      .filter(Boolean).join(' ');
+    const address = [...new Set([street, town, properties.state, properties.country]
+      .map(part => String(part || '').trim()).filter(Boolean))].join(', ');
+    return {
+      name,
+      display_name: address || name,
+      lat: String(latitude),
+      lon: String(longitude)
+    };
+  }
+
+  function renderPhotonResults(features) {
+    const resultList = $('#restaurantSearchResults');
+    const status = $('#restaurantSearchStatus');
+    resultList.replaceChildren();
+    const places = features.map(photonFeatureToPlace).filter(Boolean);
+    if (!places.length) {
+      status.textContent = 'Keine passenden OSM-Restaurants gefunden. Versuche einen anderen Suchbegriff oder Ort.';
+      return;
+    }
+    places.forEach(place => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'osm-result photon-result';
+      button.setAttribute('aria-pressed', 'false');
+      const title = document.createElement('strong');
+      title.textContent = place.name;
+      const address = document.createElement('span');
+      address.textContent = place.display_name;
+      button.append(title, address);
+      button.addEventListener('click', () => selectOsmPlace(place, button));
+      resultList.appendChild(button);
+    });
+    status.textContent = `${places.length} OSM-Vorschläge von Photon. Wähle einen Eintrag aus.`;
+  }
+
+  function schedulePhotonAutocomplete() {
+    clearTimeout(photonAutocompleteTimer);
+    const query = $('#restaurantSearchQuery').value.trim();
+    const requestId = ++photonAutocompleteRequestId;
+    const resultList = $('#restaurantSearchResults');
+    const status = $('#restaurantSearchStatus');
+    if (query.length < 3) {
+      resultList.replaceChildren();
+      status.textContent = 'Gib mindestens drei Zeichen ein, um OSM-Restaurants vorzuschlagen.';
+      return;
+    }
+    resultList.replaceChildren();
+    status.textContent = 'Suche passende OSM-Restaurants …';
+    photonAutocompleteTimer = window.setTimeout(() => {
+      void fetchPhotonAutocomplete(query, requestId);
+    }, 350);
+  }
+
+  async function searchPhotonAutocomplete() {
+    clearTimeout(photonAutocompleteTimer);
+    const query = $('#restaurantSearchQuery').value.trim();
+    const requestId = ++photonAutocompleteRequestId;
+    if (query.length < 3) {
+      $('#restaurantSearchResults').replaceChildren();
+      $('#restaurantSearchStatus').textContent = 'Gib mindestens drei Zeichen ein, um OSM-Restaurants vorzuschlagen.';
+      return;
+    }
+    await fetchPhotonAutocomplete(query, requestId);
+  }
+
+  async function fetchPhotonAutocomplete(query, requestId) {
+    const status = $('#restaurantSearchStatus');
+    try {
+      const searchUrl = new URL('https://photon.komoot.io/api/');
+      searchUrl.searchParams.set('q', query);
+      searchUrl.searchParams.set('limit', '8');
+      searchUrl.searchParams.set('lang', 'de');
+      searchUrl.searchParams.set('lat', String(photonSuggestionCenter.lat));
+      searchUrl.searchParams.set('lon', String(photonSuggestionCenter.lon));
+      ['amenity:restaurant', 'amenity:cafe', 'amenity:bar', 'amenity:pub', 'amenity:fast_food', 'shop:bakery']
+        .forEach(tag => searchUrl.searchParams.append('osm_tag', tag));
+      const response = await fetch(searchUrl, {headers: {Accept: 'application/geo+json, application/json'}});
+      if (requestId !== photonAutocompleteRequestId) return;
+      if (!response.ok) throw new Error(`Photon antwortete mit HTTP ${response.status}.`);
+      const result = await response.json();
+      if (!Array.isArray(result?.features)) throw new Error('Photon lieferte ein unerwartetes Suchergebnis.');
+      if (requestId === photonAutocompleteRequestId) renderPhotonResults(result.features);
+    } catch (error) {
+      if (requestId === photonAutocompleteRequestId) {
+        status.textContent = `OSM-Vorschläge konnten nicht geladen werden: ${error.message || 'Photon ist momentan nicht erreichbar.'}`;
+      }
+    }
+  }
+
+  async function searchOsmRestaurants() {
+    clearTimeout(photonAutocompleteTimer);
+    photonAutocompleteRequestId += 1;
     const query = $('#restaurantSearchQuery').value.trim();
     const status = $('#restaurantSearchStatus');
     const resultsList = $('#restaurantSearchResults');
@@ -1298,10 +1433,12 @@
     }
   }
 
-  function resetOsmSearch() {
+  function resetRestaurantSearch() {
+    clearTimeout(photonAutocompleteTimer);
+    photonAutocompleteRequestId += 1;
     $('#restaurantSearchQuery').value = '';
     $('#restaurantSearchResults').replaceChildren();
-    $('#restaurantSearchStatus').textContent = '';
+    $('#restaurantSearchStatus').textContent = 'Photon zeigt ab drei Zeichen automatisch OSM-Restaurants; Suchen startet zusätzlich die Nominatim-Suche.';
   }
 
   async function initialize() {

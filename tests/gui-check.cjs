@@ -67,6 +67,7 @@ async function open({width = 390, db = data(), options = {}, member = 'm1', stor
   });
   const page = await context.newPage();
   const searches = [];
+  const photonRequests = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await page.addInitScript(({db, options, member, storage}) => {
     window.__fixtureData = db;
@@ -76,6 +77,25 @@ async function open({width = 390, db = data(), options = {}, member = 'm1', stor
   }, {db, options, member, storage});
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
+    if (url.hostname === 'www.openstreetmap.org' && url.pathname === '/export/embed.html') {
+      return route.fulfill({contentType: 'text/html', body: '<!doctype html><title>Fixture map</title>'});
+    }
+    if (url.hostname === 'photon.komoot.io' && url.pathname === '/api/') {
+      photonRequests.push({url: url.href, at: Date.now()});
+      const features = Array.from({length: 2}, (_, index) => ({
+        type: 'Feature',
+        properties: {
+          name: `Photon Restaurant ${index + 1}`,
+          street: `Photon Straße`,
+          housenumber: `${index + 1}`,
+          postcode: '10115',
+          city: 'Berlin',
+          country: 'Deutschland'
+        },
+        geometry: {type: 'Point', coordinates: [13.4 + index * 0.01, 52.5 + index * 0.01]}
+      }));
+      return route.fulfill({contentType: 'application/geo+json', body: JSON.stringify({type: 'FeatureCollection', features})});
+    }
     if (url.hostname === '127.0.0.1') return route.continue();
     if (url.hostname === 'cdn.jsdelivr.net') {
       return route.fulfill({contentType: 'application/javascript', body: await fs.readFile(path.join(__dirname, 'supabase-fixture.js'), 'utf8')});
@@ -91,7 +111,7 @@ async function open({width = 390, db = data(), options = {}, member = 'm1', stor
   });
   await page.goto(`http://127.0.0.1:${server.address().port}/Connoisseure/`);
   if (!options.signedOut) await page.locator(member ? 'body.is-authenticated' : '#memberScreen:not([hidden])').waitFor();
-  return {context, page, searches};
+  return {context, page, searches, photonRequests};
 }
 async function navigate(page, view) {
   const button = page.locator(`[data-view="${view}"]:visible`);
@@ -713,26 +733,35 @@ async function rateAll(page, value) {
     } finally { await context.close(); }
   });
 
-  await check('OSM click/Enter only, five results, editable autofill, normalized cache and request spacing', async () => {
-    const {page, context, searches} = await open();
+  await check('Restaurant finder uses OSM with live Photon suggestions and manual Nominatim search', async () => {
+    const {page, context, searches, photonRequests} = await open();
     try {
       await page.click('#openCreate');
+      assert.equal(await page.locator('#osmMapFrame').isVisible(), true);
+      assert.equal(await page.locator('[data-map-provider]').count(), 0);
       await page.fill('#restaurantSearchQuery', 'Lokale Suche');
       await page.waitForTimeout(100);
       assert.equal(searches.length, 0);
-      await page.locator('#restaurantSearchQuery').press('Enter');
-      await page.locator('.osm-result').first().waitFor();
-      assert.equal(await page.locator('.osm-result').count(), 5);
-      assert.equal(new URL(searches[0].url).searchParams.get('limit'), '5');
-      await page.locator('.osm-result').first().click();
-      assert.equal(await page.locator('#restaurant').inputValue(), 'Lokales Restaurant 1');
+      assert.equal(photonRequests.length, 0);
+      await page.locator('.photon-result').first().waitFor();
+      assert.equal(searches.length, 0);
+      assert.equal(photonRequests.length, 1);
+      assert.equal(new URL(photonRequests[0].url).searchParams.get('q'), 'Lokale Suche');
+      assert.equal(new URL(photonRequests[0].url).searchParams.getAll('osm_tag').length, 6);
+      assert.equal(await page.locator('.photon-result').count(), 2);
+      await page.locator('.photon-result').first().click();
+      assert.equal(await page.locator('#restaurant').inputValue(), 'Photon Restaurant 1');
+      assert.equal(await page.locator('#mealPlace').inputValue(), 'Photon Straße 1, 10115 Berlin, Deutschland');
       assert.match(await page.locator('#mapsUrl').inputValue(), /openstreetmap\.org/);
+      assert.equal(new URL(await page.locator('#osmMapFrame').getAttribute('src')).searchParams.get('marker'), '52.500000,13.400000');
       await page.fill('#restaurant', 'Manuell bearbeitet');
       assert.equal(await page.locator('#restaurant').inputValue(), 'Manuell bearbeitet');
       await page.fill('#restaurantSearchQuery', '  LOKALE   SUCHE  ');
       await page.click('#restaurantSearchButton');
       await page.locator('.osm-result').first().waitFor();
       assert.equal(searches.length, 1);
+      assert.equal(await page.locator('.photon-result').count(), 0);
+      assert.equal(new URL(searches[0].url).searchParams.get('limit'), '5');
       await page.fill('#restaurantSearchQuery', 'Zweite lokale Suche');
       await page.click('#restaurantSearchButton');
       await page.locator('.osm-result').first().waitFor();
