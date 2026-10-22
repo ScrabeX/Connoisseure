@@ -11,6 +11,7 @@
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <symbol id="icon-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/></symbol>
     <symbol id="icon-history" viewBox="0 0 24 24"><path d="M3 11a9 9 0 1 1 2 7M3 4v7h7"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="icon-bookmark" viewBox="0 0 24 24"><path d="M6 4.75A1.75 1.75 0 0 1 7.75 3h8.5A1.75 1.75 0 0 1 18 4.75V21l-6-4-6 4z"/></symbol>
     <symbol id="icon-stats" viewBox="0 0 24 24"><path d="M4 20V10m8 10V4m8 16v-7"/></symbol>
     <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
@@ -57,6 +58,7 @@
       <nav class="nav" aria-label="Hauptnavigation">
         <button class="active" data-view="dashboard"><svg class="icon" aria-hidden="true"><use href="#icon-home"/></svg>Dashboard</button>
         <button data-view="history"><svg class="icon" aria-hidden="true"><use href="#icon-history"/></svg>Historie</button>
+        <button data-view="saved"><svg class="icon" aria-hidden="true"><use href="#icon-bookmark"/></svg>Merkliste</button>
         <button data-view="stats"><svg class="icon" aria-hidden="true"><use href="#icon-stats"/></svg>Statistik</button>
       </nav>
       <div class="profile"></div>
@@ -83,6 +85,10 @@
         <div class="topbar"><div><div class="eyebrow">Eure kulinarische Zeitreise</div><h1 class="headline" id="historyTitle" tabindex="-1">Historie</h1><p class="intro">Nur vollständig bewertete Fressungen landen hier.</p></div><button class="primary" id="openCreateHistory"><svg class="icon" aria-hidden="true"><use href="#icon-plus"/></svg>Neue Fressung</button></div>
         <div class="history-grid"></div>
       </section>
+      <section id="saved" class="view" aria-labelledby="savedTitle">
+        <div class="topbar"><div><div class="eyebrow">Nur für dich</div><h1 class="headline" id="savedTitle" tabindex="-1">Merkliste</h1><p class="intro">Merke Restaurants privat und gib sie erst dann für die Gruppe frei, wenn du möchtest.</p></div><button class="primary" id="openSaveRestaurant"><svg class="icon" aria-hidden="true"><use href="#icon-plus"/></svg>Restaurant merken</button></div>
+        <div id="savedRestaurantsList" class="saved-list"></div>
+      </section>
       <section id="stats" class="view" aria-labelledby="statsTitle">
         <div class="eyebrow">Zahlen, die schmecken</div><h1 class="headline" id="statsTitle" tabindex="-1">Statistik</h1>
         <p class="intro">Die Übersicht zählt nur abgeschlossene Fressungen. Erstellerbewertungen sind sichtbar, fließen aber nicht in die Restaurantwerte ein.</p>
@@ -101,6 +107,7 @@
   <nav class="bottom-nav" aria-label="Hauptnavigation">
     <button class="active" data-view="dashboard"><svg class="icon" aria-hidden="true"><use href="#icon-home"/></svg>Dashboard</button>
     <button data-view="history"><svg class="icon" aria-hidden="true"><use href="#icon-history"/></svg>Historie</button>
+    <button data-view="saved"><svg class="icon" aria-hidden="true"><use href="#icon-bookmark"/></svg>Merkliste</button>
     <button data-view="stats"><svg class="icon" aria-hidden="true"><use href="#icon-stats"/></svg>Statistik</button>
   </nav>
   <dialog class="modal-backdrop create-modal" id="createModal" aria-labelledby="createTitle" aria-describedby="createDescription">

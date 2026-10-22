@@ -18,7 +18,7 @@ const makeReview = (meal_id, member_id, values, comment = '') => ({
   comment, rated_at: '2026-10-04T18:00:00Z'
 });
 const makeMeal = (id, status, creator = 'm1', name = longRestaurant) => ({
-  id, status, creator_member_id: creator, restaurant_name: name, place: 'Berlin · Lange Straße 123, Hinterhof links',
+  id, status, creator_member_id: creator, is_neutral: false, restaurant_name: name, place: 'Berlin · Lange Straße 123, Hinterhof links',
   note: 'Gemeinsam genießen. '.repeat(8), created_at: '2026-10-01T12:00:00Z',
   completed_at: status === 'completed' ? '2026-10-04T18:00:00Z' : null
 });
@@ -42,7 +42,11 @@ function data() {
     ratings: [makeReview('completed', 'm1', [5, 5, 5, 5], longComment),
       makeReview('completed', 'm2', [0, 0.5, 5, 2.5], longComment),
       makeReview('tied', 'm1', [0, 0.5, 5, 2.5]),
-      makeReview('solo', 'm3', [5, 5, 5, 5])]
+      makeReview('solo', 'm3', [5, 5, 5, 5])],
+    saved_restaurants: [
+      {id: 'saved-m1', member_id: 'm1', restaurant_name: 'Nur für m1 sichtbar', place: 'Berlin', maps_url: null, note: 'Private Notiz', created_at: '2026-10-01T12:00:00Z', shared_at: null},
+      {id: 'saved-m2', member_id: 'm2', restaurant_name: 'Nur für m2 sichtbar', place: 'Potsdam', maps_url: null, note: null, created_at: '2026-10-01T12:00:00Z', shared_at: null}
+    ]
   };
 }
 
@@ -310,6 +314,9 @@ async function rateAll(page, value) {
         await navigate(page, 'history');
         await geometry(page, `history ${width}`);
         await screenshot(page, `${width}-history`);
+        await navigate(page, 'saved');
+        await geometry(page, `saved ${width}`);
+        await screenshot(page, `${width}-saved`);
         await navigate(page, 'stats');
         await geometry(page, `stats ${width}`);
         await screenshot(page, `${width}-stats`);
@@ -457,6 +464,81 @@ async function rateAll(page, value) {
       assert.deepEqual(categories.map(key => submissions[1].args[`p_${key}`]), [0, 0.5, 5, 2.5]);
       const selected = await page.evaluate(id => window.__fixture.db.meal_participants.filter(entry => entry.meal_id === id).map(entry => entry.member_id), created.id);
       assert.deepEqual(selected, ['m1', 'm2']);
+    } finally { await context.close(); }
+  });
+
+  await check('neutral meals have no proposer, may be started by others, and never affect personal recommendations', async () => {
+    const {page, context} = await open();
+    try {
+      await page.click('#openCreate');
+      await page.selectOption('#createMode', 'neutral');
+      assert.equal(await page.locator('#creatorNameField').isHidden(), true);
+      await page.fill('#restaurant', 'Neutrale Fixture-Fressung');
+      await page.fill('#mealPlace', 'Berlin');
+      await page.click('#saveCreate');
+      await page.locator('dialog[open]').waitFor({state: 'hidden'});
+      const neutral = await page.evaluate(() => window.__fixture.db.meals.find(meal => meal.restaurant_name === 'Neutrale Fixture-Fressung'));
+      assert.equal(neutral.is_neutral, true);
+      assert.equal(neutral.creator_member_id, null);
+      const card = page.locator(`[data-action="start"][data-id="${neutral.id}"]`).locator('..').locator('..');
+      assert.match(await card.textContent(), /neutrale Fressung · ohne Vorschlag/);
+      await changeMember(page, 'm2');
+      await page.locator(`[data-action="start"][data-id="${neutral.id}"]`).click();
+      await page.locator(`#memberPicker input[value="m2"]`).waitFor();
+      await page.locator('#memberPicker input[value="m1"]').check();
+      await page.locator('#memberPicker input[value="m3"]').check();
+      await page.locator('#memberPicker input[value="m2"]').uncheck();
+      await page.click('#confirmStart');
+      const startCall = await page.evaluate(id => window.__fixture.calls.find(call => call.rpc === 'start_neutral_meal' && call.args.p_meal_id === id), neutral.id);
+      assert.equal(startCall.args.p_actor_member_id, 'm2');
+      assert.deepEqual(startCall.args.p_participant_ids.sort(), ['m1', 'm3']);
+      assert.equal(await page.locator(`[data-action="rate"][data-id="${neutral.id}"]`).count(), 0, 'the active starter may be left out of the participants');
+      await changeMember(page, 'm1');
+      await page.locator(`[data-action="rate"][data-id="${neutral.id}"]`).click();
+      await rateAll(page, 5);
+      await page.click('#saveRating');
+      await changeMember(page, 'm3');
+      await page.locator(`[data-action="rate"][data-id="${neutral.id}"]`).click();
+      await rateAll(page, 1);
+      await page.click('#saveRating');
+      await navigate(page, 'history');
+      await page.locator(`#history [data-action="details"][data-id="${neutral.id}"]`).click();
+      assert.match(await page.locator('.detail-reviews').textContent(), /Restaurant-Ø \(Essen x3 gewichtet\): 3,0/);
+      assert.equal(await page.locator('.creator-badge').count(), 0);
+      await navigate(page, 'stats');
+      const personalRecommendations = page.locator('.member-stat-card').filter({hasText: longName}).locator('.member-stat-metric').first();
+      assert.match(await personalRecommendations.textContent(), /1/);
+    } finally { await context.close(); }
+  });
+
+  await check('saved restaurants stay profile-specific in the UI and sharing creates one normal waiting meal', async () => {
+    const {page, context} = await open();
+    try {
+      await navigate(page, 'saved');
+      assert.match(await page.locator('#savedRestaurantsList').textContent(), /Nur für m1 sichtbar/);
+      assert.doesNotMatch(await page.locator('#savedRestaurantsList').textContent(), /Nur für m2 sichtbar/);
+      await page.click('#openSaveRestaurant');
+      assert.equal(await page.locator('#createMode').inputValue(), 'saved');
+      await page.fill('#restaurant', 'Neuer Merklisteintrag');
+      await page.fill('#mealPlace', 'Berlin');
+      await page.fill('#note', 'Nur für mich');
+      await page.click('#saveCreate');
+      await page.locator('dialog[open]').waitFor({state: 'hidden'});
+      await page.locator('#savedRestaurantsList').getByText('Neuer Merklisteintrag').waitFor();
+      assert.equal(await page.evaluate(() => window.__fixture.db.meals.some(meal => meal.restaurant_name === 'Neuer Merklisteintrag')), false);
+      await changeMember(page, 'm2');
+      assert.match(await page.locator('#savedRestaurantsList').textContent(), /Nur für m2 sichtbar/);
+      assert.doesNotMatch(await page.locator('#savedRestaurantsList').textContent(), /Nur für m1 sichtbar|Neuer Merklisteintrag/);
+      await changeMember(page, 'm1');
+      await navigate(page, 'saved');
+      await page.locator('[data-action="share-saved"][data-id="saved-m1"]').click();
+      await page.locator('#savedRestaurantsList').getByText('Bereits geteilt').waitFor();
+      const shared = await page.evaluate(() => window.__fixture.db.meals.find(meal => meal.id === 'shared-saved-m1'));
+      assert.equal(shared.restaurant_name, 'Nur für m1 sichtbar');
+      assert.equal(shared.creator_member_id, 'm1');
+      assert.equal(shared.is_neutral, false);
+      assert.equal(shared.status, 'waiting');
+      assert.equal(await page.locator('[data-action="share-saved"][data-id="saved-m1"]').count(), 0);
     } finally { await context.close(); }
   });
 
@@ -803,6 +885,18 @@ async function rateAll(page, value) {
         assert.match(await page.locator('#restaurantSearchStatus').textContent(), /warte eine Minute/);
       } finally { await context.close(); }
     }
+  });
+
+  await check('meal INSERT policy preserves group/status/timestamp checks for neutral and personal meals', async () => {
+    const migration = await fs.readFile(path.join(root, 'supabase', 'migrations', '20261022091222_neutral_meals_and_saved_restaurants.sql'), 'utf8');
+    const policy = migration.split('CREATE POLICY meals_create_waiting_group_account')[1]
+      .split('CREATE POLICY saved_restaurants_group_access')[0];
+    assert.match(policy, /private\.is_group_account\(\)/);
+    assert.match(policy, /status\s*=\s*'waiting'/i);
+    assert.match(policy, /started_at\s+IS\s+NULL/i);
+    assert.match(policy, /completed_at\s+IS\s+NULL/i);
+    assert.match(policy, /\(is_neutral\s+AND\s+creator_member_id\s+IS\s+NULL\)/i);
+    assert.match(policy, /NOT\s+is_neutral\s+AND\s+creator_member_id\s+IS\s+NOT\s+NULL[\s\S]*?WHERE\s+id\s*=\s*creator_member_id\s+AND\s+is_active/i);
   });
 
   await check('HTML selectors, unique IDs, labels and Pages relative assets', async () => {

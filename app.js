@@ -13,7 +13,7 @@
   const NOMINATIM_CACHE_STORAGE_KEY = 'connoisseure.nominatim-search-cache';
   const NOMINATIM_RATE_LIMIT_KEY = 'connoisseure.nominatim-next-request-at';
   const NOMINATIM_COOLDOWN_KEY = 'connoisseure.nominatim-cooldown-until';
-  const VIEW_IDS = new Set(['dashboard', 'history', 'stats', 'details']);
+  const VIEW_IDS = new Set(['dashboard', 'history', 'saved', 'stats', 'details']);
   const CATEGORY_DEFS = [
     {key: 'food', label: 'Essen', weight: 3},
     {key: 'service', label: 'Service'},
@@ -40,6 +40,7 @@
   let currentMember = null;
   let members = [];
   let meals = [];
+  let savedRestaurants = [];
   let participants = [];
   let ratings = [];
   let selectedMealId = null;
@@ -190,22 +191,28 @@
     members = data || [];
   }
 
-  async function fetchWorkspaceData() {
-    const [mealsResult, participantsResult, ratingsResult] = await Promise.all([
+  async function fetchWorkspaceData(memberId = currentMember?.id) {
+    const [mealsResult, participantsResult, ratingsResult, savedRestaurantsResult] = await Promise.all([
       supabase.from('meals')
-        .select('id,restaurant_name,place,maps_url,note,creator_member_id,status,created_at,started_at,completed_at')
+        .select('id,restaurant_name,place,maps_url,note,creator_member_id,is_neutral,status,created_at,started_at,completed_at')
         .order('created_at', {ascending: false}),
       supabase.from('meal_participants')
         .select('meal_id,member_id,selected_at'),
       supabase.from('ratings')
-        .select('meal_id,member_id,food,service,ambience,value_for_money,comment,rated_at')
+        .select('meal_id,member_id,food,service,ambience,value_for_money,comment,rated_at'),
+      supabase.from('saved_restaurants')
+        .select('id,member_id,restaurant_name,place,maps_url,note,created_at,shared_at')
+        .eq('member_id', memberId)
+        .order('created_at', {ascending: false})
     ]);
     if (mealsResult.error) throw new Error(databaseErrorMessage('Fressungen konnten nicht geladen werden', mealsResult.error));
     if (participantsResult.error) throw new Error(databaseErrorMessage('Teilnehmende konnten nicht geladen werden', participantsResult.error));
     if (ratingsResult.error) throw new Error(databaseErrorMessage('Bewertungen konnten nicht geladen werden', ratingsResult.error));
+    if (savedRestaurantsResult.error) throw new Error(databaseErrorMessage('Merkliste konnte nicht geladen werden', savedRestaurantsResult.error));
     meals = mealsResult.data || [];
     participants = participantsResult.data || [];
     ratings = ratingsResult.data || [];
+    savedRestaurants = savedRestaurantsResult.data || [];
   }
 
   async function enterApplication(member) {
@@ -213,7 +220,7 @@
     $('#chooseMember').disabled = true;
     $('#createMember').disabled = true;
     try {
-      await fetchWorkspaceData();
+      await fetchWorkspaceData(member.id);
       currentMember = member;
       storeMemberId(member.id);
       showApplication();
@@ -238,6 +245,7 @@
       meals = [];
       participants = [];
       ratings = [];
+      savedRestaurants = [];
       showAuth();
       return;
     }
@@ -388,7 +396,7 @@
 
   function mealScore(meal) {
     const externalScores = mealRatings(meal.id)
-      .filter(rating => rating.member_id !== meal.creator_member_id)
+      .filter(rating => isNeutralMeal(meal) || rating.member_id !== meal.creator_member_id)
       .map(rating => {
         const values = CATEGORY_DEFS.map(category => Number(rating[category.key]));
         return values.every(Number.isFinite)
@@ -401,6 +409,10 @@
       : null;
   }
 
+  function isNeutralMeal(meal) {
+    return Boolean(meal.is_neutral || meal.creator_member_id === null);
+  }
+
   function renderStars(score) {
     if (!Number.isFinite(score)) return '';
     return Array.from({length: 5}, (_, index) => {
@@ -411,15 +423,16 @@
   }
 
   function renderPendingCard(meal) {
-    const creator = memberById(meal.creator_member_id);
-    const isCreator = meal.creator_member_id === currentMember.id;
+    const neutral = isNeutralMeal(meal);
+    const creator = neutral ? null : memberById(meal.creator_member_id);
+    const canStart = neutral || meal.creator_member_id === currentMember.id;
     const selected = mealParticipants(meal.id).some(participant => participant.member_id === currentMember.id);
     const hasRated = Boolean(memberRating(meal.id, currentMember.id));
     const selectedParticipants = mealParticipants(meal.id);
     const ratedCount = selectedParticipants.filter(participant => memberRating(meal.id, participant.member_id)).length;
     let action = '';
     if (meal.status === 'waiting') {
-      action = isCreator
+      action = canStart
         ? `<button class="start-btn" data-action="start" data-id="${escapeHtml(meal.id)}">${icon('arrow')}Fressung starten</button>`
         : '<span class="status">Wartet auf den Ersteller</span>';
     } else if (selected && !hasRated) {
@@ -436,7 +449,7 @@
     const place = meal.place ? escapeHtml(meal.place) : 'Ort nicht angegeben';
     const note = meal.note ? `<p class="pending-note">${escapeHtml(meal.note)}</p>` : '';
     return `<article class="pending ${meal.status === 'running' ? 'started' : ''}">
-      <div class="pending-top"><div><h3>${escapeHtml(meal.restaurant_name)}</h3><p>${place} · vorgeschlagen von ${escapeHtml(creator.display_name)}</p>${note}</div>${mealStatus(meal)}</div>
+      <div class="pending-top"><div><h3>${escapeHtml(meal.restaurant_name)}</h3><p>${place} · ${neutral ? 'neutrale Fressung · ohne Vorschlag' : `vorgeschlagen von ${escapeHtml(creator.display_name)}`}</p>${note}</div>${mealStatus(meal)}</div>
       <div class="small pending-progress">${progress}</div>
       ${meal.status === 'running' ? `<div class="progress-line"><i style="width:${percent}%"></i></div>` : ''}
       <div class="pending-actions">${action}<button class="details-btn" data-action="details" data-id="${escapeHtml(meal.id)}">Details ansehen</button></div>
@@ -444,11 +457,11 @@
   }
 
   function renderLatestMeal(meal) {
-    const creator = memberById(meal.creator_member_id);
+    const creator = isNeutralMeal(meal) ? null : memberById(meal.creator_member_id);
     const score = mealScore(meal);
     const reviewCount = mealRatings(meal.id).filter(review => review.member_id !== meal.creator_member_id).length;
     return `<article class="meal">
-      <div><h3>${escapeHtml(meal.restaurant_name)}</h3><p>${escapeHtml(meal.place || 'Ort nicht angegeben')} · vorgeschlagen von ${escapeHtml(creator.display_name)}</p><span class="pill">${escapeHtml(formatDate(meal.completed_at || meal.created_at))}</span></div>
+      <div><h3>${escapeHtml(meal.restaurant_name)}</h3><p>${escapeHtml(meal.place || 'Ort nicht angegeben')} · ${creator ? `vorgeschlagen von ${escapeHtml(creator.display_name)}` : 'neutrale Fressung · ohne Vorschlag'}</p><span class="pill">${escapeHtml(formatDate(meal.completed_at || meal.created_at))}</span></div>
       <div class="score">${score === null ? '<span class="small">Kein Restaurant-Score</span>' : `<div class="stars" role="img" aria-label="${formatScore(score)} von 5 Sternen">${renderStars(score)}</div><small>${formatScore(score)} aus ${reviewCount} Bewertungen</small>`}
         <button class="link" data-action="details" data-id="${escapeHtml(meal.id)}">Details ${icon('arrow')}</button>
       </div>
@@ -456,7 +469,7 @@
   }
 
   function renderHistoryCard(meal) {
-    const creator = memberById(meal.creator_member_id);
+    const creator = isNeutralMeal(meal) ? null : memberById(meal.creator_member_id);
     const score = mealScore(meal);
     const count = mealRatings(meal.id).length;
     return `<article class="card history-card">
@@ -464,15 +477,15 @@
       <h2>${escapeHtml(meal.restaurant_name)}</h2>
       <p class="intro">${escapeHtml(meal.note || meal.place || 'Keine Notiz hinterlegt.')}</p>
       ${score === null ? '<p class="small">Kein Restaurant-Score: keine Bewertung anderer Teilnehmender.</p>' : `<div class="history-score"><span class="stars" role="img" aria-label="${formatScore(score)} von 5 Sternen">${renderStars(score)}</span><strong>${formatScore(score)}</strong></div>`}
-      <span class="pill">${count} ${count === 1 ? 'Bewertung' : 'Bewertungen'} · ${escapeHtml(creator.display_name)}</span>
+      <span class="pill">${count} ${count === 1 ? 'Bewertung' : 'Bewertungen'} · ${creator ? escapeHtml(creator.display_name) : 'neutral'}</span>
       <button class="details-btn" data-action="details" data-id="${escapeHtml(meal.id)}">Ergebnisse ansehen ${icon('arrow')}</button>
     </article>`;
   }
 
   function renderActivity(meal) {
-    const creator = memberById(meal.creator_member_id);
+    const creator = isNeutralMeal(meal) ? null : memberById(meal.creator_member_id);
     const label = meal.status === 'running' ? 'Bewertung läuft' : meal.status === 'waiting' ? 'Wartet auf den Start' : 'Abgeschlossen';
-    return `<div class="notification">${memberAvatar(creator)}<div><b>${escapeHtml(creator.display_name)} · ${escapeHtml(meal.restaurant_name)}</b><span>${label}</span></div></div>`;
+    return `<div class="notification">${creator ? memberAvatar(creator) : '<span class="neutral-mark" aria-label="Neutral">N</span>'}<div><b>${creator ? `${escapeHtml(creator.display_name)} · ` : 'Neutrale Fressung · '}${escapeHtml(meal.restaurant_name)}</b><span>${label}</span></div></div>`;
   }
 
   function renderDashboard() {
@@ -511,6 +524,24 @@
     $('#history .history-grid').innerHTML = completed.length
       ? completed.map(renderHistoryCard).join('')
       : '<div class="empty-state">Es gibt noch keine abgeschlossenen Fressungen. Sobald alle ausgewählten Personen bewertet haben, erscheinen sie hier.</div>';
+  }
+
+  function renderSavedRestaurants() {
+    const saved = savedRestaurants.filter(item => item.member_id === currentMember.id);
+    $('#savedRestaurantsList').innerHTML = saved.length
+      ? saved.map(item => `<article class="card saved-card">
+          <div><h2>${escapeHtml(item.restaurant_name)}</h2><p>${escapeHtml(item.place || 'Ort nicht angegeben')}</p>
+            ${item.note ? `<p class="small">${escapeHtml(item.note)}</p>` : ''}
+            ${item.shared_at ? '<span class="pill">Mit der Gruppe geteilt</span>' : ''}
+            ${validMapsUrl(item.maps_url) ? `<a class="maps-link" href="${escapeHtml(validMapsUrl(item.maps_url))}" target="_blank" rel="noopener noreferrer">Kartenlink öffnen ↗</a>` : ''}
+          </div>
+          <div class="saved-actions">${item.shared_at
+            ? '<span class="status complete">Bereits geteilt</span>'
+            : `<button class="primary" data-action="share-saved" data-id="${escapeHtml(item.id)}">Für die Gruppe freigeben</button>`}
+            <button class="secondary" data-action="delete-saved" data-id="${escapeHtml(item.id)}">Aus Merkliste löschen</button>
+          </div>
+        </article>`).join('')
+      : '<div class="empty-state">Deine Merkliste ist noch leer. Speichere Restaurants nur für dich und teile sie später mit der Gruppe.</div>';
   }
 
   function renderRatingRow(category) {
@@ -623,19 +654,19 @@
       ? mealRatings(meal.id).slice().sort((a, b) => new Date(a.rated_at) - new Date(b.rated_at))
       : [];
     const score = meal.status === 'completed' ? mealScore(meal) : null;
-    const externalReviews = reviews.filter(review => review.member_id !== meal.creator_member_id);
+    const externalReviews = reviews.filter(review => isNeutralMeal(meal) || review.member_id !== meal.creator_member_id);
     const summaries = meal.status === 'completed' && externalReviews.length
       ? `<div class="rating-summary">${CATEGORY_DEFS.map(category => {
         const values = externalReviews.map(review => Number(review[category.key])).filter(Number.isFinite);
         const average = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
         return `<div><b>${average === null ? '—' : `${formatScore(average)} ★`}</b>${renderCategoryLabel(category)}</div>`;
-      }).join('')}</div><p class="small">Restaurant-Ø (Essen x3 gewichtet): ${score === null ? '—' : `${formatScore(score)} ★`}. Erstellerbewertungen bleiben sichtbar, zählen aber nicht in die Durchschnitte.</p>`
+      }).join('')}</div><p class="small">Restaurant-Ø (Essen x3 gewichtet): ${score === null ? '—' : `${formatScore(score)} ★`}. ${isNeutralMeal(meal) ? 'Alle Teilnehmendenbewertungen zählen in die Durchschnitte.' : 'Erstellerbewertungen bleiben sichtbar, zählen aber nicht in die Durchschnitte.'}</p>`
       : meal.status === 'completed'
         ? '<p class="small">Kein Restaurant-Durchschnitt verfügbar: Es gibt keine Bewertung von einem anderen Teilnehmenden.</p>'
         : hasRated
-          ? '<p class="small">Du hast bewertet und siehst alle bisher abgegebenen Bewertungen. Restaurant-Durchschnitte erscheinen nach Abschluss; Erstellerbewertungen zählen nicht in die Durchschnitte.</p>'
+          ? `<p class="small">Du hast bewertet und siehst alle bisher abgegebenen Bewertungen. Restaurant-Durchschnitte erscheinen nach Abschluss; ${isNeutralMeal(meal) ? 'alle Teilnehmendenbewertungen zählen in die Durchschnitte.' : 'Erstellerbewertungen zählen nicht in die Durchschnitte.'}</p>`
           : isParticipant
-            ? '<p class="small">Bewertungen anderer Teilnehmender werden sichtbar, sobald du selbst bewertet hast. Restaurant-Durchschnitte erscheinen nach Abschluss; Erstellerbewertungen zählen nicht in die Durchschnitte.</p>'
+            ? `<p class="small">Bewertungen anderer Teilnehmender werden sichtbar, sobald du selbst bewertet hast. Restaurant-Durchschnitte erscheinen nach Abschluss; ${isNeutralMeal(meal) ? 'alle Teilnehmendenbewertungen zählen in die Durchschnitte.' : 'Erstellerbewertungen zählen nicht in die Durchschnitte.'}</p>`
             : '<p class="small">Als Nichtteilnehmer siehst du die Bewertungen erst nach Abschluss. Restaurant-Durchschnitte erscheinen ebenfalls nach Abschluss.</p>';
     const mapUrl = validMapsUrl(meal.maps_url);
     const location = mapUrl
@@ -649,13 +680,13 @@
           : 'Du nimmst an dieser Fressung nicht teil.'
         : 'Noch keine Bewertungen eingetragen.'}</div>`;
     const waitingInfo = meal.status === 'waiting'
-      ? '<div class="confirm-box">Die Teilnehmenden werden beim Start festgelegt. Nur der Ersteller kann die Fressung starten.</div>'
+      ? `<div class="confirm-box">Die Teilnehmenden werden beim Start festgelegt. ${isNeutralMeal(meal) ? 'Jedes aktive Mitglied kann die neutrale Fressung starten.' : 'Nur der Ersteller kann die Fressung starten.'}</div>`
       : renderParticipantList(meal);
     const reviewTitle = meal.status === 'running' && isParticipant && !hasRated ? 'Deine Bewertung' : 'Bewertungen';
     $('#detailContent').innerHTML = `<div class="eyebrow">Fressung im Überblick</div>
-      <div class="topbar"><div><h1 class="headline" id="detailsTitle" tabindex="-1">${escapeHtml(meal.restaurant_name)}</h1><p class="intro">${escapeHtml(meal.place || 'Ort nicht angegeben')} · vorgeschlagen von ${escapeHtml(creator.display_name)}</p></div>${mealStatus(meal)}</div>
+      <div class="topbar"><div><h1 class="headline" id="detailsTitle" tabindex="-1">${escapeHtml(meal.restaurant_name)}</h1><p class="intro">${escapeHtml(meal.place || 'Ort nicht angegeben')} · ${isNeutralMeal(meal) ? 'neutrale Fressung · ohne Vorschlag' : `vorgeschlagen von ${escapeHtml(creator.display_name)}`}</p></div>${mealStatus(meal)}</div>
       <div class="detail-layout"><div class="card detail-reviews"><h2>${reviewTitle}</h2>${summaries}${reviewContent}</div><div class="card detail-secondary">
-        <div class="detail-meta"><div class="meta-box"><b>Ort</b>${location}</div><div class="meta-box"><b>Vorgeschlagen</b>${escapeHtml(formatDate(meal.created_at))}</div><div class="meta-box"><b>Notiz</b>${escapeHtml(meal.note || 'Keine Notiz hinterlegt.')}</div><div class="meta-box"><b>Status</b>${mealStatus(meal)}</div></div>
+        <div class="detail-meta"><div class="meta-box"><b>Ort</b>${location}</div><div class="meta-box"><b>${isNeutralMeal(meal) ? 'Angelegt' : 'Vorgeschlagen'}</b>${escapeHtml(formatDate(meal.created_at))}</div><div class="meta-box"><b>Notiz</b>${escapeHtml(meal.note || 'Keine Notiz hinterlegt.')}</div><div class="meta-box"><b>Status</b>${mealStatus(meal)}</div></div>
         ${waitingInfo}
       </div></div>`;
     if (navigate) setView('details');
@@ -674,7 +705,7 @@
     const mealScores = [];
 
     completedMeals.forEach(meal => {
-      const creatorStats = totals.get(meal.creator_member_id);
+      const creatorStats = isNeutralMeal(meal) ? null : totals.get(meal.creator_member_id);
       if (creatorStats) creatorStats.recommendations += 1;
       restaurants.add(meal.restaurant_name.trim().toLocaleLowerCase('de-DE'));
       const externalReviews = mealRatings(meal.id).filter(review => review.member_id !== meal.creator_member_id);
@@ -760,6 +791,7 @@
     $('#dashboard .headline').textContent = `Schön, dich zu sehen, ${currentMember.display_name.split(/\s+/)[0]}.`;
     renderDashboard();
     renderHistory();
+    renderSavedRestaurants();
     if (mealById(selectedMealId)) renderDetails(mealById(selectedMealId), {navigate: false});
     updateProfile();
     bindNavigation();
@@ -778,17 +810,40 @@
   function openStart(meal, opener) {
     selectedMealId = meal.id;
     const selectedIds = new Set(mealParticipants(meal.id).map(participant => participant.member_id));
-    selectedIds.add(meal.creator_member_id);
+    selectedIds.add(meal.creator_member_id || currentMember.id);
     $('#memberPicker').innerHTML = members.filter(member => member.is_active).map(member => `
       <label class="member-option"><input type="checkbox" value="${escapeHtml(member.id)}" ${selectedIds.has(member.id) ? 'checked' : ''}>
-        ${memberAvatar(member)}<span><b>${escapeHtml(member.display_name)}</b><small class="small">${member.id === meal.creator_member_id ? 'Ersteller' : ''}</small></span>
+        ${memberAvatar(member)}<span><b>${escapeHtml(member.display_name)}</b><small class="small">${member.id === meal.creator_member_id && !isNeutralMeal(meal) ? 'Ersteller' : member.id === currentMember.id && isNeutralMeal(meal) ? 'Startet Fressung' : ''}</small></span>
       </label>`).join('');
     openModal('startModal', opener);
   }
 
-  function openCreateModal(event) {
+  function openCreateModal(event, mode = 'group') {
     $('#creatorName').value = currentMember?.display_name || '';
+    $('#createMode').value = mode;
+    updateCreateMode();
     openModal('createModal', event?.currentTarget);
+  }
+
+  function updateCreateMode() {
+    const mode = $('#createMode').value;
+    $('#creatorNameField').hidden = mode !== 'group';
+    $('#saveCreate').textContent = mode === 'saved' ? 'Auf Merkliste speichern' : mode === 'neutral' ? 'Neutrale Fressung anlegen' : 'Fressung anlegen';
+    $('#createDescription').textContent = mode === 'saved'
+      ? 'Nur du siehst diesen Eintrag in deiner Merkliste. Die Gruppe sieht ihn erst nach dem Freigeben.'
+      : mode === 'neutral'
+        ? 'Ohne Vorschlag und ohne persönliche Statistik. Jede aktive Person kann die Fressung starten.'
+        : 'Die Bewertung beginnt erst nach dem gemeinsamen Start.';
+  }
+
+  function clearCreateForm() {
+    $('#restaurant').value = '';
+    $('#mealPlace').value = '';
+    $('#mapsUrl').value = '';
+    $('#note').value = '';
+    $('#createMode').value = 'group';
+    updateCreateMode();
+    resetRestaurantSearch();
   }
 
   async function startMeal() {
@@ -803,7 +858,7 @@
     setMessage($('#startModal .modal-message'), '');
     button.disabled = true;
     try {
-      const {error} = await supabase.rpc('start_meal', {
+      const {error} = await supabase.rpc(isNeutralMeal(meal) ? 'start_neutral_meal' : 'start_meal', {
         p_meal_id: meal.id,
         p_actor_member_id: currentMember.id,
         p_participant_ids: participantIds
@@ -869,23 +924,38 @@
     setMessage($('#createModal .modal-message'), '');
     button.disabled = true;
     try {
+      const mode = $('#createMode').value;
+      if (mode === 'saved') {
+        const {error} = await supabase.from('saved_restaurants').insert({
+          member_id: currentMember.id,
+          restaurant_name: restaurant,
+          place,
+          maps_url: mapsUrl || null,
+          note: $('#note').value.trim() || null
+        });
+        if (error) throw new Error(databaseErrorMessage('Restaurant konnte nicht auf der Merkliste gespeichert werden', error));
+        closeModal('createModal');
+        clearCreateForm();
+        await refreshAndRender();
+        toast('Restaurant auf deiner Merkliste gespeichert. Nur du siehst es.');
+        return;
+      }
       const {error} = await supabase.from('meals').insert({
         restaurant_name: restaurant,
         place,
         maps_url: mapsUrl || null,
         note: $('#note').value.trim() || null,
-        creator_member_id: currentMember.id,
+        creator_member_id: mode === 'neutral' ? null : currentMember.id,
+        is_neutral: mode === 'neutral',
         status: 'waiting'
       });
       if (error) throw new Error(databaseErrorMessage('Fressung konnte nicht angelegt werden', error));
       closeModal('createModal');
-      $('#restaurant').value = '';
-      $('#mealPlace').value = '';
-      $('#mapsUrl').value = '';
-      $('#note').value = '';
-      resetRestaurantSearch();
+      clearCreateForm();
       await refreshAndRender();
-      toast('Fressung angelegt und für die Gruppe bereitgestellt.');
+      toast(mode === 'neutral'
+        ? 'Neutrale Fressung angelegt. Jedes aktive Mitglied kann sie starten.'
+        : 'Fressung angelegt und für die Gruppe bereitgestellt.');
     } catch (error) {
       toast(error.message, {error: true});
     } finally {
@@ -932,6 +1002,37 @@
     if (error) toast(authErrorMessage(error), {error: true});
   }
 
+  async function shareSavedRestaurant(id) {
+    const item = savedRestaurants.find(entry => entry.id === id && entry.member_id === currentMember.id);
+    if (!item || item.shared_at) return;
+    try {
+      const {error} = await supabase.rpc('share_saved_restaurant', {
+        p_saved_restaurant_id: item.id,
+        p_member_id: currentMember.id
+      });
+      if (error) throw new Error(databaseErrorMessage('Restaurant konnte nicht freigegeben werden', error));
+      await refreshAndRender();
+      toast('Restaurant mit der Gruppe geteilt und als ausstehende Fressung angelegt.');
+    } catch (error) {
+      toast(error.message, {error: true});
+    }
+  }
+
+  async function deleteSavedRestaurant(id) {
+    const item = savedRestaurants.find(entry => entry.id === id && entry.member_id === currentMember.id);
+    if (!item) return;
+    try {
+      const {error} = await supabase.from('saved_restaurants').delete()
+        .eq('id', item.id)
+        .eq('member_id', currentMember.id);
+      if (error) throw new Error(databaseErrorMessage('Restaurant konnte nicht aus der Merkliste gelöscht werden', error));
+      await refreshAndRender();
+      toast('Restaurant aus deiner Merkliste gelöscht.');
+    } catch (error) {
+      toast(error.message, {error: true});
+    }
+  }
+
   function handleAction(event) {
     const target = event.target.closest('[data-action]');
     if (!target) return;
@@ -940,6 +1041,8 @@
     if (action === 'start' && meal) openStart(meal, target);
     if (action === 'rate' && meal) openRating(meal, target);
     if (action === 'details' && meal) renderDetails(meal);
+    if (action === 'share-saved') void shareSavedRestaurant(target.dataset.id);
+    if (action === 'delete-saved') void deleteSavedRestaurant(target.dataset.id);
   }
 
   function bindUi() {
@@ -1011,6 +1114,7 @@
     $('#confirmStart').addEventListener('click', () => void startMeal());
     $('#saveRating').addEventListener('click', () => void submitRating());
     $('#saveCreate').addEventListener('click', () => void createMeal());
+    $('#createMode').addEventListener('change', updateCreateMode);
     $('#restaurantSearchButton').addEventListener('click', () => void searchOsmRestaurants());
     $('#restaurantSearchQuery').addEventListener('input', schedulePhotonAutocomplete);
     $('#restaurantSearchQuery').addEventListener('keydown', event => {
@@ -1023,6 +1127,7 @@
     });
     $('#openCreate').addEventListener('click', openCreateModal);
     $('#openCreateHistory').addEventListener('click', openCreateModal);
+    $('#openSaveRestaurant').addEventListener('click', event => openCreateModal(event, 'saved'));
     $$('[data-close]').forEach(button => button.addEventListener('click', () => closeModal(button.dataset.close)));
     $('#dismissToast').addEventListener('click', () => { $('#toast').hidden = true; });
     $$('dialog').forEach(dialog => {
@@ -1078,6 +1183,7 @@
 
   function configureCreateForm() {
     $('#createModal .form-grid').innerHTML = `
+      <div class="field full"><label for="createMode">Was möchtest du anlegen?</label><select id="createMode"><option value="group">Fressung für die Gruppe vorschlagen</option><option value="neutral">Neutrale Fressung ohne persönlichen Vorschlag</option><option value="saved">Privat auf meiner Merkliste speichern</option></select></div>
       <section class="field full restaurant-search" aria-labelledby="restaurantSearchTitle">
         <div class="restaurant-search-header">
           <div><span class="eyebrow">Restaurant finden</span><h3 id="restaurantSearchTitle">Wo soll es hingehen?</h3><p class="small">Suche einen Ort aus und wir übernehmen Name, Adresse und Kartenlink.</p></div>
@@ -1101,7 +1207,7 @@
       <div class="field"><label for="mealPlace">Ort</label><input id="mealPlace" maxlength="200" placeholder="z. B. Berlin-Kreuzberg" required></div>
       <div class="field full"><label for="mapsUrl" id="mapsUrlLabel">OpenStreetMap-Link (optional)</label><input id="mapsUrl" type="url" placeholder="https://www.openstreetmap.org/..."></div>
       <div class="field full"><label for="note">Notiz für die Gruppe (optional)</label><textarea id="note" maxlength="2000" placeholder="Warum müssen wir genau dort hin?"></textarea></div>`;
-    $('#createModal .form-grid').insertAdjacentHTML('beforeend', '<div class="field full"><label for="creatorName">Ersteller · dein ausgewähltes Profil</label><input id="creatorName" value="" disabled></div>');
+    $('#createModal .form-grid').insertAdjacentHTML('beforeend', '<div class="field full" id="creatorNameField"><label for="creatorName">Ersteller · dein ausgewähltes Profil</label><input id="creatorName" value="" disabled></div>');
   }
 
   function normalizedSearchQuery(query) {
