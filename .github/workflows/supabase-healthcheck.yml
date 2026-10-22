@@ -1,0 +1,27 @@
+name: Supabase health check
+
+on:
+  schedule:
+    - cron: '17 7,19 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-healthcheck
+  cancel-in-progress: false
+
+jobs:
+  healthcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    env:
+      SUPABASE_URL: https://lgqglihtxpexuhndeimo.supabase.co
+      SUPABASE_PUBLISHABLE_KEY: sb_publishable_mHQon-OPIGD1PaF9NP-nTw_4dL7C5CR
+      SUPABASE_GROUP_PASSWORD: ${{ secrets.SUPABASE_GROUP_PASSWORD }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Run read-only Supabase health check
+        run: node .github/scripts/supabase-keepalive.mjs
