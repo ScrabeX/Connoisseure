@@ -63,7 +63,7 @@ a { color: var(--sage-dark); text-underline-offset: 3px; overflow-wrap: anywhere
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
 .topbar > div { min-width: 0; }
 .topbar > button { flex-shrink: 0; }
-.bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; height: calc(var(--nav-height) + env(safe-area-inset-bottom)); padding: 8px max(12px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: var(--card); border-top: 1px solid var(--line); gap: 4px; z-index: 4; }
+.bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; height: calc(var(--nav-height) + env(safe-area-inset-bottom)); padding: 8px max(12px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: var(--card); border-top: 1px solid var(--line); gap: 4px; z-index: 4; }
 .bottom-nav button { flex-direction: column; gap: 3px; padding: 4px; font-size: 11px; font-weight: 600; color: var(--muted); background: transparent; }
 .bottom-nav button.active { background: #e8eee6; color: var(--sage-dark); }
 .avatar { width: 36px; height: 36px; flex: 0 0 36px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; color: #303e32; font-weight: 750; font-size: 13px; }
@@ -75,6 +75,8 @@ a { color: var(--sage-dark); text-underline-offset: 3px; overflow-wrap: anywhere
 .pending-list { display: grid; gap: 14px; }
 .pending { border-left: 3px solid #bf9a50; }
 .pending.started { border-left-color: var(--sage); }
+.pending:has(.neutral-mark) { border-left-color: #7b8b9c; }
+.neutral-mark { width: 36px; height: 36px; flex: 0 0 36px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: #e9edf1; color: #425466; font-size: 13px; font-weight: 750; }
 .pending-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .pending-top > div { min-width: 0; }
 .pending p { color: var(--muted); font-size: 13px; }
@@ -118,6 +120,11 @@ a { color: var(--sage-dark); text-underline-offset: 3px; overflow-wrap: anywhere
 .notification b { display: block; }
 .notification span:not(.avatar) { color: var(--muted); }
 .history-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 24px; }
+.saved-list { display: grid; gap: 14px; margin-top: 24px; }
+.saved-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 20px; }
+.saved-card h2 { overflow-wrap: anywhere; }
+.saved-card p { color: var(--muted); }
+.saved-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .history-card { display: flex; flex-direction: column; align-items: flex-start; }
 .history-card h2 { margin-top: 8px; }
 .history-card .details-btn { margin-top: auto; width: 100%; }
@@ -277,6 +284,9 @@ a { color: var(--sage-dark); text-underline-offset: 3px; overflow-wrap: anywhere
   .topbar { flex-wrap: wrap; gap: 16px; }
   .topbar > button { width: 100%; }
   .grid, .detail-layout, .history-grid, .member-stats { grid-template-columns: minmax(0, 1fr); }
+  .saved-card { grid-template-columns: minmax(0, 1fr); }
+  .saved-actions { justify-content: stretch; }
+  .saved-actions button { flex: 1 1 100%; }
   .detail-secondary { order: -1; }
   .card, .pending { padding: 18px; }
   .pending-top { flex-direction: column; gap: 8px; }
