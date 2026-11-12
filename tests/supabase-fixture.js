@@ -2,6 +2,8 @@
   'use strict';
   const options = window.__fixtureOptions || {};
   const db = structuredClone(window.__fixtureData);
+  for (const table of ['decision_rounds', 'decision_votes']) db[table] ||= [];
+  db.saved_restaurants.forEach(entry => { entry.proposed_at ??= null; });
   const calls = [];
   let authListener;
   let session = options.signedOut ? null : {access_token: 'local-fixture-token'};
@@ -22,6 +24,8 @@
       update(value) { changed = value; operation = 'update'; return builder; },
       delete() { operation = 'delete'; return builder; },
       eq(column, value) { filters.push([column, value]); return builder; },
+      not(column) { filters.push([column, undefined, 'notnull']); return builder; },
+      is(column) { filters.push([column, undefined, 'isnull']); return builder; },
       single() { single = true; return builder; },
       then(resolve, reject) {
         return (async () => {
@@ -33,7 +37,7 @@
             db[table].unshift(entry);
             return result(single ? entry : [entry]);
           }
-          const matches = entry => filters.every(([column, value]) => entry[column] === value);
+          const matches = entry => filters.every(([column, value, kind]) => kind === 'notnull' ? entry[column] != null : kind === 'isnull' ? entry[column] == null : entry[column] === value);
           if (operation === 'delete') {
             db[table] = db[table].filter(entry => !matches(entry));
             return result(null);

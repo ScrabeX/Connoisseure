@@ -74,6 +74,7 @@
       <section id="dashboard" class="view active" aria-labelledby="dashboardTitle">
         <div class="topbar"><div><div class="eyebrow">Deine Gruppe</div><h1 class="headline" id="dashboardTitle" tabindex="-1">Schön, dich zu sehen.</h1><p class="intro">Lasset die Fressung beginnen</p></div><button class="primary" id="openCreate"><svg class="icon" aria-hidden="true"><use href="#icon-plus"/></svg>Neue Fressung</button></div>
         <div class="pending-wrap"><div class="card-head"><div><h2>Ausstehende Fressungen</h2><span class="small">Bewertet wird erst nach dem Start.</span></div><span class="status" id="pendingSummary">0 offen</span></div><div class="pending-list" id="pendingList"></div></div>
+        <div class="pending-wrap" id="decisionWrap"><div class="card-head"><div><h2>Nächste Fressung entscheiden</h2><span class="small">Vorschläge aus den Merklisten der Gruppe.</span></div><span class="status" id="decisionSummary">0 Vorschläge</span></div><div class="pending-list" id="decisionList"></div><div class="decision-actions" id="decisionActions"></div></div>
         <div class="summary dashboard-summary">
           <div class="stat"><strong id="pendingCount">0</strong><span>ausstehende Fressungen</span></div>
           <div class="stat"><strong id="dashboardGroupAverage">—</strong><span>Ø Restaurant-Score der Gruppe</span></div>
@@ -115,6 +116,13 @@
       <div class="modal-head"><div><div class="eyebrow">Gemeinsames Erlebnis planen</div><h2 id="createTitle">Neue Fressung</h2><p class="small" id="createDescription">Die Bewertung beginnt erst nach dem gemeinsamen Start.</p></div><button class="close" data-close="createModal" aria-label="Dialog schließen"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button></div>
       <div class="modal-body"><div class="form-grid"></div></div>
       <div class="modal-footer"><p class="auth-message modal-message" role="alert" hidden></p><div class="modal-actions"><button class="secondary" data-close="createModal">Abbrechen</button><button class="primary" id="saveCreate">Fressung anlegen</button></div></div>
+    </div>
+  </dialog>
+  <dialog class="modal-backdrop" id="decideModal" aria-labelledby="decideTitle" aria-describedby="decideRandomHint">
+    <div class="modal">
+      <div class="modal-head"><div><div class="eyebrow">Nächster Schritt</div><h2 id="decideTitle">Für Fressung entscheiden</h2><p class="small" id="decideRandomHint"></p></div><button class="close" data-close="decideModal" aria-label="Dialog schließen"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button></div>
+      <div class="modal-body decide-options"><button class="primary" id="startVote" type="button">Abstimmung starten</button><span class="small">Alle stimmen über die Vorschläge ab (mindestens zwei nötig).</span><button class="secondary" id="decideRandom" type="button">Zufällig entscheiden</button><span class="small">Eine zufällige Fressung wird ausgelost.</span></div>
+      <div class="modal-footer"><p class="auth-message modal-message" role="alert" hidden></p><div class="modal-actions"><button class="secondary" data-close="decideModal">Abbrechen</button></div></div>
     </div>
   </dialog>
   <dialog class="modal-backdrop" id="startModal" aria-labelledby="startTitle" aria-describedby="startDescription startWarning">
