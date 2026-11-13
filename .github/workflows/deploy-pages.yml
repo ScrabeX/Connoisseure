@@ -26,6 +26,10 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+      - name: Add cache-busting version to assets
+        run: |
+          sed -i "s|href=\"./styles.css\"|href=\"./styles.css?v=${GITHUB_SHA}\"|; s|src=\"./app.js\"|src=\"./app.js?v=${GITHUB_SHA}\"|" index.html
+          grep -q "app.js?v=${GITHUB_SHA}" index.html && grep -q "styles.css?v=${GITHUB_SHA}" index.html
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
       - name: Upload site artifact
