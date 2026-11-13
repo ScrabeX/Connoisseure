@@ -436,6 +436,9 @@ async function rateAll(page, value) {
       await page.locator('#savedRestaurantsList [data-action="propose-saved"][data-id="saved-m2"]').click();
       await page.locator('#savedRestaurantsList [data-action="unpropose-saved"][data-id="saved-m2"]').waitFor();
       await navigate(page, 'dashboard');
+      await page.locator(`#decisionList [data-action="proposal-details"][data-id="${proposal.id}"]`).click();
+      assert.match(await page.locator('#proposalModal').textContent(), /Neue lokale Empfehlung/);
+      await page.locator('#proposalModal .modal-actions [data-close]').click();
       await page.click('#openDecide');
       await page.click('#startVote');
       await page.locator(`[data-action="vote"][data-id="${proposal.id}"]`).click();

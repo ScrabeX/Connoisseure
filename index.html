@@ -125,6 +125,13 @@
       <div class="modal-footer"><p class="auth-message modal-message" role="alert" hidden></p><div class="modal-actions"><button class="secondary" data-close="decideModal">Abbrechen</button></div></div>
     </div>
   </dialog>
+  <dialog class="modal-backdrop" id="proposalModal" aria-labelledby="proposalTitle">
+    <div class="modal">
+      <div class="modal-head"><div><div class="eyebrow">Vorschlag</div><h2 id="proposalTitle"></h2></div><button class="close" data-close="proposalModal" aria-label="Dialog schließen"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button></div>
+      <div class="modal-body" id="proposalBody"></div>
+      <div class="modal-footer"><p class="auth-message modal-message" role="alert" hidden></p><div class="modal-actions"><button class="secondary" data-close="proposalModal">Schließen</button></div></div>
+    </div>
+  </dialog>
   <dialog class="modal-backdrop" id="startModal" aria-labelledby="startTitle" aria-describedby="startDescription startWarning">
     <div class="modal">
       <div class="modal-head"><div><div class="eyebrow">Nächster Schritt</div><h2 id="startTitle">Fressung starten</h2><p class="small" id="startDescription">Wähle aus, wer tatsächlich dabei war.</p></div><button class="close" data-close="startModal" aria-label="Dialog schließen"><svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg></button></div>

@@ -569,11 +569,11 @@
       const mine = myVote?.saved_restaurant_id === item.id;
       return `<article class="pending decision-item">
         <div class="pending-top"><div><h3>${escapeHtml(item.restaurant_name)}</h3><p>${escapeHtml(item.place || 'Ort nicht angegeben')} · vorgeschlagen von ${escapeHtml(proposer?.display_name || 'Unbekannt')}${item.member_id === lastId ? ' · war zuletzt dran' : ''}</p></div>${round ? `<span class="status ${mine ? 'complete' : ''}">${votes} ${votes === 1 ? 'Stimme' : 'Stimmen'}</span>` : ''}</div>
-        ${round
-          ? `<div class="pending-actions"><button class="${mine ? 'secondary' : 'primary'}" data-action="vote" data-id="${escapeHtml(item.id)}">${mine ? 'Deine Stimme' : 'Dafür stimmen'}</button></div>`
+        <div class="pending-actions">${round
+          ? `<button class="${mine ? 'secondary' : 'primary'}" data-action="vote" data-id="${escapeHtml(item.id)}">${mine ? 'Deine Stimme' : 'Dafür stimmen'}</button>`
           : item.member_id === currentMember.id
-            ? `<div class="pending-actions"><button class="secondary" data-action="unpropose-saved" data-id="${escapeHtml(item.id)}">Vorschlag zurückziehen</button></div>`
-            : ''}
+            ? `<button class="secondary" data-action="unpropose-saved" data-id="${escapeHtml(item.id)}">Vorschlag zurückziehen</button>`
+            : ''}<button class="details-btn" data-action="proposal-details" data-id="${escapeHtml(item.id)}">Details ansehen</button></div>
       </article>`;
     }).join('');
     let actions = '';
@@ -594,6 +594,20 @@
       ? `${lastMember.display_name} war zuletzt dran und wird bei der Zufallsauswahl ausgenommen.`
       : 'Alle Vorschläge sind im Lostopf.';
     $('#startVote').disabled = proposals.length < 2;
+  }
+
+  function openProposalDetails(id, opener) {
+    const item = proposals.find(entry => entry.id === id);
+    if (!item) return;
+    const proposer = memberById(item.member_id);
+    const link = validMapsUrl(item.maps_url);
+    $('#proposalTitle').textContent = item.restaurant_name;
+    $('#proposalBody').innerHTML = `
+      <p><b>Ort</b><br>${escapeHtml(item.place || 'Ort nicht angegeben')}</p>
+      <p><b>Vorgeschlagen von</b><br>${escapeHtml(proposer?.display_name || 'Unbekannt')}${item.member_id === lastProposerId() ? ' · war zuletzt dran' : ''}</p>
+      <p><b>Notiz</b><br>${item.note ? escapeHtml(item.note) : '<span class="small">Keine Notiz hinterlegt.</span>'}</p>
+      ${link ? `<p><a class="maps-link" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Kartenlink öffnen ↗</a></p>` : ''}`;
+    openModal('proposalModal', opener);
   }
 
   async function runDecision(rpcName, args, successMessage, failureMessage) {
@@ -1152,6 +1166,7 @@
     if (action === 'delete-saved') void deleteSavedRestaurant(target.dataset.id);
     if (action === 'propose-saved') void setProposed(target.dataset.id, true);
     if (action === 'unpropose-saved') void setProposed(target.dataset.id, false);
+    if (action === 'proposal-details') openProposalDetails(target.dataset.id, target);
     if (action === 'open-decide') openModal('decideModal', target);
     if (action === 'vote') void runDecision('cast_decision_vote', {p_round_id: activeRound()?.id, p_member_id: currentMember.id, p_saved_restaurant_id: target.dataset.id}, 'Deine Stimme wurde gespeichert.', 'Stimme konnte nicht gespeichert werden');
     if (action === 'finish-vote') void runDecision('finish_decision_vote', {p_round_id: target.dataset.id, p_member_id: currentMember.id}, 'Abstimmung beendet. Die Fressung steht bei den ausstehenden Fressungen.', 'Abstimmung konnte nicht beendet werden');
