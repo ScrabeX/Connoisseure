@@ -41,6 +41,9 @@
   let members = [];
   let meals = [];
   let savedRestaurants = [];
+  let proposals = [];
+  let decisionRounds = [];
+  let decisionVotes = [];
   let participants = [];
   let ratings = [];
   let selectedMealId = null;
@@ -192,7 +195,7 @@
   }
 
   async function fetchWorkspaceData(memberId = currentMember?.id) {
-    const [mealsResult, participantsResult, ratingsResult, savedRestaurantsResult] = await Promise.all([
+    const [mealsResult, participantsResult, ratingsResult, savedRestaurantsResult, proposalsResult, roundsResult, votesResult] = await Promise.all([
       supabase.from('meals')
         .select('id,restaurant_name,place,maps_url,note,creator_member_id,is_neutral,status,created_at,started_at,completed_at')
         .order('created_at', {ascending: false}),
@@ -201,9 +204,18 @@
       supabase.from('ratings')
         .select('meal_id,member_id,food,service,ambience,value_for_money,comment,rated_at'),
       supabase.from('saved_restaurants')
-        .select('id,member_id,restaurant_name,place,maps_url,note,created_at,shared_at')
+        .select('id,member_id,restaurant_name,place,maps_url,note,created_at,shared_at,proposed_at')
         .eq('member_id', memberId)
-        .order('created_at', {ascending: false})
+        .order('created_at', {ascending: false}),
+      supabase.from('saved_restaurants')
+        .select('id,member_id,restaurant_name,place,maps_url,note,created_at,shared_at,proposed_at')
+        .not('proposed_at', 'is', null)
+        .is('shared_at', null),
+      supabase.from('decision_rounds')
+        .select('id,status,started_by_member_id,created_at')
+        .eq('status', 'voting'),
+      supabase.from('decision_votes')
+        .select('round_id,member_id,saved_restaurant_id')
     ]);
     if (mealsResult.error) throw new Error(databaseErrorMessage('Fressungen konnten nicht geladen werden', mealsResult.error));
     if (participantsResult.error) throw new Error(databaseErrorMessage('Teilnehmende konnten nicht geladen werden', participantsResult.error));
@@ -213,6 +225,12 @@
     participants = participantsResult.data || [];
     ratings = ratingsResult.data || [];
     savedRestaurants = savedRestaurantsResult.data || [];
+    if (proposalsResult.error) throw new Error(databaseErrorMessage('Vorschläge konnten nicht geladen werden', proposalsResult.error));
+    if (roundsResult.error) throw new Error(databaseErrorMessage('Abstimmung konnte nicht geladen werden', roundsResult.error));
+    if (votesResult.error) throw new Error(databaseErrorMessage('Stimmen konnten nicht geladen werden', votesResult.error));
+    proposals = proposalsResult.data || [];
+    decisionRounds = roundsResult.data || [];
+    decisionVotes = votesResult.data || [];
   }
 
   async function enterApplication(member) {
@@ -246,6 +264,9 @@
       participants = [];
       ratings = [];
       savedRestaurants = [];
+      proposals = [];
+      decisionRounds = [];
+      decisionVotes = [];
       showAuth();
       return;
     }
@@ -526,18 +547,105 @@
       : '<div class="empty-state">Es gibt noch keine abgeschlossenen Fressungen. Sobald alle ausgewählten Personen bewertet haben, erscheinen sie hier.</div>';
   }
 
+  function activeRound() {
+    return decisionRounds.find(round => round.status === 'voting') || null;
+  }
+
+  function lastProposerId() {
+    const last = meals.filter(meal => !isNeutralMeal(meal) && meal.creator_member_id)
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+    return last?.creator_member_id || null;
+  }
+
+  function renderDecision() {
+    const round = activeRound();
+    const lastId = lastProposerId();
+    const roundVotes = round ? decisionVotes.filter(vote => vote.round_id === round.id) : [];
+    const myVote = roundVotes.find(vote => vote.member_id === currentMember.id);
+    const activeCount = members.filter(member => member.is_active).length;
+    const items = proposals.map(item => {
+      const proposer = memberById(item.member_id);
+      const votes = roundVotes.filter(vote => vote.saved_restaurant_id === item.id).length;
+      const mine = myVote?.saved_restaurant_id === item.id;
+      return `<article class="pending decision-item">
+        <div class="pending-top"><div><h3>${escapeHtml(item.restaurant_name)}</h3><p>${escapeHtml(item.place || 'Ort nicht angegeben')} · vorgeschlagen von ${escapeHtml(proposer?.display_name || 'Unbekannt')}${item.member_id === lastId ? ' · war zuletzt dran' : ''}</p></div>${round ? `<span class="status ${mine ? 'complete' : ''}">${votes} ${votes === 1 ? 'Stimme' : 'Stimmen'}</span>` : ''}</div>
+        ${round ? `<div class="pending-actions"><button class="${mine ? 'secondary' : 'primary'}" data-action="vote" data-id="${escapeHtml(item.id)}">${mine ? 'Deine Stimme' : 'Dafür stimmen'}</button></div>` : ''}
+      </article>`;
+    }).join('');
+    let actions = '';
+    if (round) {
+      actions = `<button class="primary" data-action="finish-vote" data-id="${escapeHtml(round.id)}">Abstimmung beenden</button><button class="secondary" data-action="cancel-vote" data-id="${escapeHtml(round.id)}">Abstimmung abbrechen</button>`;
+    } else if (proposals.length) {
+      actions = '<button class="primary" id="openDecide" data-action="open-decide">Für Fressung entscheiden</button>';
+    }
+    $('#decisionSummary').textContent = round
+      ? `Abstimmung läuft · ${roundVotes.length} von ${activeCount} Stimmen`
+      : `${proposals.length} ${proposals.length === 1 ? 'Vorschlag' : 'Vorschläge'}`;
+    $('#decisionList').innerHTML = proposals.length
+      ? items
+      : '<div class="empty-state">Noch keine Vorschläge. Schlage auf deiner Merkliste ein Restaurant für die nächste Fressung vor.</div>';
+    $('#decisionActions').innerHTML = actions;
+    const lastMember = memberById(lastId);
+    $('#decideRandomHint').textContent = lastMember
+      ? `${lastMember.display_name} war zuletzt dran und wird bei der Zufallsauswahl ausgenommen.`
+      : 'Alle Vorschläge sind im Lostopf.';
+    $('#startVote').disabled = proposals.length < 2;
+  }
+
+  async function runDecision(rpcName, args, successMessage, failureMessage) {
+    try {
+      const {error} = await supabase.rpc(rpcName, args);
+      if (error) throw new Error(databaseErrorMessage(failureMessage, error));
+      await refreshAndRender();
+      toast(successMessage);
+      return true;
+    } catch (error) {
+      toast(error.message, {error: true});
+      return false;
+    }
+  }
+
+  async function setProposed(id, proposed) {
+    const item = savedRestaurants.find(entry => entry.id === id && entry.member_id === currentMember.id);
+    if (!item || item.shared_at) return;
+    try {
+      const {error} = await supabase.from('saved_restaurants')
+        .update({proposed_at: proposed ? new Date().toISOString() : null})
+        .eq('id', item.id)
+        .eq('member_id', currentMember.id);
+      if (error) throw new Error(databaseErrorMessage('Vorschlag konnte nicht gespeichert werden', error));
+      await refreshAndRender();
+      toast(proposed ? 'Als Vorschlag für die nächste Fressung eingetragen.' : 'Vorschlag zurückgezogen.');
+    } catch (error) {
+      toast(error.message, {error: true});
+    }
+  }
+
+  async function startVote() {
+    closeModal('decideModal');
+    await runDecision('start_decision_vote', {p_member_id: currentMember.id},
+      'Abstimmung gestartet. Jetzt kann jeder abstimmen.', 'Abstimmung konnte nicht gestartet werden');
+  }
+
+  async function decideRandomly() {
+    closeModal('decideModal');
+    await runDecision('decide_randomly', {p_member_id: currentMember.id},
+      'Die Fressung wurde ausgelost und steht jetzt bei den ausstehenden Fressungen.', 'Zufallsauswahl fehlgeschlagen');
+  }
+
   function renderSavedRestaurants() {
     const saved = savedRestaurants.filter(item => item.member_id === currentMember.id);
     $('#savedRestaurantsList').innerHTML = saved.length
       ? saved.map(item => `<article class="card saved-card">
           <div><h2>${escapeHtml(item.restaurant_name)}</h2><p>${escapeHtml(item.place || 'Ort nicht angegeben')}</p>
             ${item.note ? `<p class="small">${escapeHtml(item.note)}</p>` : ''}
-            ${item.shared_at ? '<span class="pill">Mit der Gruppe geteilt</span>' : ''}
+            ${item.shared_at ? '<span class="pill">Mit der Gruppe geteilt</span>' : item.proposed_at ? '<span class="pill">Für die nächste Fressung vorgeschlagen</span>' : ''}
             ${validMapsUrl(item.maps_url) ? `<a class="maps-link" href="${escapeHtml(validMapsUrl(item.maps_url))}" target="_blank" rel="noopener noreferrer">Kartenlink öffnen ↗</a>` : ''}
           </div>
           <div class="saved-actions">${item.shared_at
             ? '<span class="status complete">Bereits geteilt</span>'
-            : `<button class="primary" data-action="share-saved" data-id="${escapeHtml(item.id)}">Für die Gruppe freigeben</button>`}
+            : `<button class="primary" data-action="${item.proposed_at ? 'unpropose-saved' : 'propose-saved'}" data-id="${escapeHtml(item.id)}" ${activeRound() ? 'disabled' : ''}>${item.proposed_at ? 'Vorschlag zurückziehen' : 'Vorschlagen'}</button>
+              <button class="secondary" data-action="share-saved" data-id="${escapeHtml(item.id)}">Direkt freigeben</button>`}
             <button class="secondary" data-action="delete-saved" data-id="${escapeHtml(item.id)}">Aus Merkliste löschen</button>
           </div>
         </article>`).join('')
@@ -790,6 +898,7 @@
     $('#dashboard > .topbar .eyebrow').textContent = date;
     $('#dashboard .headline').textContent = `Schön, dich zu sehen, ${currentMember.display_name.split(/\s+/)[0]}.`;
     renderDashboard();
+    renderDecision();
     renderHistory();
     renderSavedRestaurants();
     if (mealById(selectedMealId)) renderDetails(mealById(selectedMealId), {navigate: false});
@@ -1043,6 +1152,12 @@
     if (action === 'details' && meal) renderDetails(meal);
     if (action === 'share-saved') void shareSavedRestaurant(target.dataset.id);
     if (action === 'delete-saved') void deleteSavedRestaurant(target.dataset.id);
+    if (action === 'propose-saved') void setProposed(target.dataset.id, true);
+    if (action === 'unpropose-saved') void setProposed(target.dataset.id, false);
+    if (action === 'open-decide') openModal('decideModal', target);
+    if (action === 'vote') void runDecision('cast_decision_vote', {p_round_id: activeRound()?.id, p_member_id: currentMember.id, p_saved_restaurant_id: target.dataset.id}, 'Deine Stimme wurde gespeichert.', 'Stimme konnte nicht gespeichert werden');
+    if (action === 'finish-vote') void runDecision('finish_decision_vote', {p_round_id: target.dataset.id, p_member_id: currentMember.id}, 'Abstimmung beendet. Die Fressung steht bei den ausstehenden Fressungen.', 'Abstimmung konnte nicht beendet werden');
+    if (action === 'cancel-vote') void runDecision('cancel_decision_vote', {p_round_id: target.dataset.id, p_member_id: currentMember.id}, 'Abstimmung abgebrochen.', 'Abstimmung konnte nicht abgebrochen werden');
   }
 
   function bindUi() {
@@ -1127,6 +1242,8 @@
     });
     $('#openCreate').addEventListener('click', openCreateModal);
     $('#openCreateHistory').addEventListener('click', openCreateModal);
+    $('#startVote').addEventListener('click', () => void startVote());
+    $('#decideRandom').addEventListener('click', () => void decideRandomly());
     $('#openSaveRestaurant').addEventListener('click', event => openCreateModal(event, 'saved'));
     $$('[data-close]').forEach(button => button.addEventListener('click', () => closeModal(button.dataset.close)));
     $('#dismissToast').addEventListener('click', () => { $('#toast').hidden = true; });
