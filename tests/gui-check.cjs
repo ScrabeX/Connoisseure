@@ -425,10 +425,23 @@ async function rateAll(page, value) {
       assert.match(await page.locator('#createModal .modal-message').textContent(), /Restaurant und Ort/);
       await page.fill('#restaurant', 'Neue lokale Empfehlung');
       await page.fill('#mealPlace', 'Berlin');
-      assert.ok(await page.locator('#creatorName').isDisabled());
-      assert.equal(await page.locator('#creatorName').inputValue(), longName);
       await page.click('#saveCreate');
       await page.locator('dialog[open]').waitFor({state: 'hidden'});
+      assert.equal(await page.evaluate(() => window.__fixture.db.meals.some(meal => meal.restaurant_name === 'Neue lokale Empfehlung')), false, 'a proposal is not a meal yet');
+      const proposal = await page.evaluate(() => window.__fixture.db.saved_restaurants.find(entry => entry.restaurant_name === 'Neue lokale Empfehlung'));
+      assert.equal(proposal.member_id, 'm1');
+      assert.ok(proposal.proposed_at, 'the new proposal is also on the own Merkliste');
+      await changeMember(page, 'm2');
+      await navigate(page, 'saved');
+      await page.locator('#savedRestaurantsList [data-action="propose-saved"][data-id="saved-m2"]').click();
+      await page.locator('#savedRestaurantsList [data-action="unpropose-saved"][data-id="saved-m2"]').waitFor();
+      await navigate(page, 'dashboard');
+      await page.click('#openDecide');
+      await page.click('#startVote');
+      await page.locator(`[data-action="vote"][data-id="${proposal.id}"]`).click();
+      await page.locator('[data-action="finish-vote"]').click();
+      await page.locator('#decisionList .empty-state').waitFor();
+      await changeMember(page, 'm1');
       const created = await page.evaluate(() => window.__fixture.db.meals.find(meal => meal.restaurant_name === 'Neue lokale Empfehlung'));
       assert.equal(created.status, 'waiting');
       assert.equal(created.creator_member_id, 'm1');
@@ -472,7 +485,6 @@ async function rateAll(page, value) {
     try {
       await page.click('#openCreate');
       await page.selectOption('#createMode', 'neutral');
-      assert.equal(await page.locator('#creatorNameField').isHidden(), true);
       await page.fill('#restaurant', 'Neutrale Fixture-Fressung');
       await page.fill('#mealPlace', 'Berlin');
       await page.click('#saveCreate');
@@ -511,7 +523,7 @@ async function rateAll(page, value) {
     } finally { await context.close(); }
   });
 
-  await check('saved restaurants stay profile-specific in the UI and sharing creates one normal waiting meal', async () => {
+  await check('saved restaurants stay profile-specific; one proposal per person can be set, replaced, withdrawn and deleted', async () => {
     const {page, context} = await open();
     try {
       await navigate(page, 'saved');
@@ -531,14 +543,21 @@ async function rateAll(page, value) {
       assert.doesNotMatch(await page.locator('#savedRestaurantsList').textContent(), /Nur für m1 sichtbar|Neuer Merklisteintrag/);
       await changeMember(page, 'm1');
       await navigate(page, 'saved');
-      await page.locator('[data-action="share-saved"][data-id="saved-m1"]').click();
-      await page.locator('#savedRestaurantsList').getByText('Bereits geteilt').waitFor();
-      const shared = await page.evaluate(() => window.__fixture.db.meals.find(meal => meal.id === 'shared-saved-m1'));
-      assert.equal(shared.restaurant_name, 'Nur für m1 sichtbar');
-      assert.equal(shared.creator_member_id, 'm1');
-      assert.equal(shared.is_neutral, false);
-      assert.equal(shared.status, 'waiting');
-      assert.equal(await page.locator('[data-action="share-saved"][data-id="saved-m1"]').count(), 0);
+      assert.equal(await page.locator('[data-action="share-saved"]').count(), 0, 'no direct sharing any more');
+      await page.locator('#savedRestaurantsList [data-action="propose-saved"][data-id="saved-m1"]').click();
+      await page.locator('#savedRestaurantsList [data-action="unpropose-saved"][data-id="saved-m1"]').waitFor();
+      await navigate(page, 'dashboard');
+      assert.match(await page.locator('#decisionList').textContent(), /Nur für m1 sichtbar/);
+      const newId = await page.evaluate(() => window.__fixture.db.saved_restaurants.find(entry => entry.restaurant_name === 'Neuer Merklisteintrag').id);
+      await navigate(page, 'saved');
+      await page.locator(`#savedRestaurantsList [data-action="propose-saved"][data-id="${newId}"]`).click();
+      await page.locator(`#savedRestaurantsList [data-action="unpropose-saved"][data-id="${newId}"]`).waitFor();
+      assert.equal(await page.locator('#savedRestaurantsList [data-action="unpropose-saved"]').count(), 1, 'only one proposal per person');
+      assert.equal(await page.evaluate(() => window.__fixture.db.saved_restaurants.find(entry => entry.id === 'saved-m1').proposed_at), null);
+      await page.locator(`#savedRestaurantsList [data-action="unpropose-saved"][data-id="${newId}"]`).click();
+      await page.locator(`#savedRestaurantsList [data-action="propose-saved"][data-id="${newId}"]`).waitFor();
+      await page.locator(`#savedRestaurantsList [data-action="delete-saved"][data-id="${newId}"]`).click();
+      await page.locator('#savedRestaurantsList').getByText('Neuer Merklisteintrag').waitFor({state: 'detached'});
     } finally { await context.close(); }
   });
 
@@ -798,7 +817,7 @@ async function rateAll(page, value) {
       await page.click('#openCreate');
       await page.fill('#restaurant', 'Fehler-Fixture');
       await page.fill('#mealPlace', 'Berlin');
-      await page.evaluate(() => { window.__fixture.errors.meals = 'Fixture offline'; });
+      await page.evaluate(() => { window.__fixture.errors.saved_restaurants = 'Fixture offline'; });
       await page.click('#saveCreate');
       await page.locator('.modal-message:not([hidden])').waitFor();
       assert.match(await page.locator('#createModal .modal-message').textContent(), /Fixture offline/);
