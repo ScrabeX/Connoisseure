@@ -79,6 +79,59 @@
       calls.push({rpc: name, args});
       if (errors[name]) return result(null, {message: errors[name]});
       const meal = db.meals.find(entry => entry.id === args.p_meal_id);
+      const openProposals = () => db.saved_restaurants.filter(entry => entry.proposed_at && !entry.shared_at);
+      const createFromProposal = saved => {
+        const created = {
+          id: `meal-${saved.id}`, restaurant_name: saved.restaurant_name, place: saved.place,
+          maps_url: saved.maps_url, note: saved.note, creator_member_id: saved.member_id,
+          is_neutral: false, status: 'waiting', created_at: new Date().toISOString(), started_at: null, completed_at: null
+        };
+        db.meals.unshift(created);
+        saved.shared_at = new Date().toISOString();
+        db.saved_restaurants.forEach(entry => { entry.proposed_at = null; });
+        return created.id;
+      };
+      const running = () => db.decision_rounds.find(round => round.status === 'voting');
+      if (name === 'propose_saved_restaurant') {
+        const saved = db.saved_restaurants.find(entry => entry.id === args.p_saved_restaurant_id
+          && entry.member_id === args.p_member_id && !entry.shared_at);
+        if (running()) return result(null, {message: 'A vote is running. Proposals cannot be changed now.'});
+        if (!saved) return result(null, {message: 'Saved restaurant was not found or was already used.'});
+        db.saved_restaurants.filter(entry => entry.member_id === args.p_member_id).forEach(entry => { entry.proposed_at = null; });
+        saved.proposed_at = new Date().toISOString();
+        return result(null);
+      }
+      if (name === 'start_decision_vote') {
+        if (openProposals().length < 2 || running()) return result(null, {message: 'Cannot start a vote.'});
+        db.decision_rounds.push({id: 'round-1', status: 'voting', started_by_member_id: args.p_member_id});
+        return result('round-1');
+      }
+      if (name === 'cast_decision_vote') {
+        if (!running() || !openProposals().some(entry => entry.id === args.p_saved_restaurant_id)) return result(null, {message: 'Cannot vote.'});
+        db.decision_votes = db.decision_votes.filter(vote => vote.member_id !== args.p_member_id);
+        db.decision_votes.push({round_id: args.p_round_id, member_id: args.p_member_id, saved_restaurant_id: args.p_saved_restaurant_id});
+        return result(null);
+      }
+      if (name === 'finish_decision_vote') {
+        const counts = {};
+        db.decision_votes.forEach(vote => { counts[vote.saved_restaurant_id] = (counts[vote.saved_restaurant_id] || 0) + 1; });
+        const winnerId = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+        const winner = openProposals().find(entry => entry.id === winnerId);
+        if (!running() || !winner) return result(null, {message: 'No votes have been cast yet.'});
+        running().status = 'closed';
+        return result(createFromProposal(winner));
+      }
+      if (name === 'cancel_decision_vote') {
+        if (!running()) return result(null, {message: 'This vote is not running.'});
+        running().status = 'cancelled';
+        return result(null);
+      }
+      if (name === 'decide_randomly') {
+        const last = db.meals.find(entry => !entry.is_neutral && entry.creator_member_id)?.creator_member_id;
+        const winner = openProposals().find(entry => entry.member_id !== last);
+        if (running() || !winner) return result(null, {message: 'No eligible proposals.'});
+        return result(createFromProposal(winner));
+      }
       if (name === 'start_meal') {
         if (!meal || meal.creator_member_id !== args.p_actor_member_id || meal.status !== 'waiting') {
           return result(null, {message: 'Only the creator may start a waiting meal.'});
@@ -89,16 +142,6 @@
           || !args.p_participant_ids.length) {
           return result(null, {message: 'Only an active member may start a neutral waiting meal.'});
         }
-      } else if (name === 'share_saved_restaurant') {
-        const saved = db.saved_restaurants.find(entry => entry.id === args.p_saved_restaurant_id
-          && entry.member_id === args.p_member_id && !entry.shared_at);
-        if (!saved) return result(null, {message: 'Saved restaurant was not found or was already shared.'});
-        db.meals.unshift({
-          ...saved, id: `shared-${saved.id}`, creator_member_id: args.p_member_id,
-          is_neutral: false, status: 'waiting', started_at: null, completed_at: null
-        });
-        saved.shared_at = new Date().toISOString();
-        return result(`shared-${saved.id}`);
       }
       if (name === 'start_meal' || name === 'start_neutral_meal') {
         meal.status = 'running';

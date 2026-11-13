@@ -569,7 +569,11 @@
       const mine = myVote?.saved_restaurant_id === item.id;
       return `<article class="pending decision-item">
         <div class="pending-top"><div><h3>${escapeHtml(item.restaurant_name)}</h3><p>${escapeHtml(item.place || 'Ort nicht angegeben')} · vorgeschlagen von ${escapeHtml(proposer?.display_name || 'Unbekannt')}${item.member_id === lastId ? ' · war zuletzt dran' : ''}</p></div>${round ? `<span class="status ${mine ? 'complete' : ''}">${votes} ${votes === 1 ? 'Stimme' : 'Stimmen'}</span>` : ''}</div>
-        ${round ? `<div class="pending-actions"><button class="${mine ? 'secondary' : 'primary'}" data-action="vote" data-id="${escapeHtml(item.id)}">${mine ? 'Deine Stimme' : 'Dafür stimmen'}</button></div>` : ''}
+        <div class="pending-actions">${round
+          ? `<button class="${mine ? 'secondary' : 'primary'}" data-action="vote" data-id="${escapeHtml(item.id)}">${mine ? 'Deine Stimme' : 'Dafür stimmen'}</button>`
+          : item.member_id === currentMember.id
+            ? `<button class="secondary" data-action="unpropose-saved" data-id="${escapeHtml(item.id)}">Vorschlag zurückziehen</button>`
+            : ''}<button class="details-btn" data-action="proposal-details" data-id="${escapeHtml(item.id)}">Details ansehen</button></div>
       </article>`;
     }).join('');
     let actions = '';
@@ -592,6 +596,20 @@
     $('#startVote').disabled = proposals.length < 2;
   }
 
+  function openProposalDetails(id, opener) {
+    const item = proposals.find(entry => entry.id === id);
+    if (!item) return;
+    const proposer = memberById(item.member_id);
+    const link = validMapsUrl(item.maps_url);
+    $('#proposalTitle').textContent = item.restaurant_name;
+    $('#proposalBody').innerHTML = `
+      <p><b>Ort</b><br>${escapeHtml(item.place || 'Ort nicht angegeben')}</p>
+      <p><b>Vorgeschlagen von</b><br>${escapeHtml(proposer?.display_name || 'Unbekannt')}${item.member_id === lastProposerId() ? ' · war zuletzt dran' : ''}</p>
+      <p><b>Notiz</b><br>${item.note ? escapeHtml(item.note) : '<span class="small">Keine Notiz hinterlegt.</span>'}</p>
+      ${link ? `<p><a class="maps-link" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Kartenlink öffnen ↗</a></p>` : ''}`;
+    openModal('proposalModal', opener);
+  }
+
   async function runDecision(rpcName, args, successMessage, failureMessage) {
     try {
       const {error} = await supabase.rpc(rpcName, args);
@@ -608,14 +626,16 @@
   async function setProposed(id, proposed) {
     const item = savedRestaurants.find(entry => entry.id === id && entry.member_id === currentMember.id);
     if (!item || item.shared_at) return;
+    const replaced = proposed ? proposals.find(entry => entry.member_id === currentMember.id && entry.id !== item.id) : null;
     try {
-      const {error} = await supabase.from('saved_restaurants')
-        .update({proposed_at: proposed ? new Date().toISOString() : null})
-        .eq('id', item.id)
-        .eq('member_id', currentMember.id);
+      const {error} = proposed
+        ? await supabase.rpc('propose_saved_restaurant', {p_saved_restaurant_id: item.id, p_member_id: currentMember.id})
+        : await supabase.from('saved_restaurants').update({proposed_at: null}).eq('id', item.id).eq('member_id', currentMember.id);
       if (error) throw new Error(databaseErrorMessage('Vorschlag konnte nicht gespeichert werden', error));
       await refreshAndRender();
-      toast(proposed ? 'Als Vorschlag für die nächste Fressung eingetragen.' : 'Vorschlag zurückgezogen.');
+      toast(!proposed ? 'Vorschlag zurückgezogen.'
+        : replaced ? `Dein Vorschlag wurde durch „${item.restaurant_name}“ ersetzt.`
+        : 'Als Vorschlag für die nächste Fressung eingetragen.');
     } catch (error) {
       toast(error.message, {error: true});
     }
@@ -644,8 +664,7 @@
           </div>
           <div class="saved-actions">${item.shared_at
             ? '<span class="status complete">Bereits geteilt</span>'
-            : `<button class="primary" data-action="${item.proposed_at ? 'unpropose-saved' : 'propose-saved'}" data-id="${escapeHtml(item.id)}" ${activeRound() ? 'disabled' : ''}>${item.proposed_at ? 'Vorschlag zurückziehen' : 'Vorschlagen'}</button>
-              <button class="secondary" data-action="share-saved" data-id="${escapeHtml(item.id)}">Direkt freigeben</button>`}
+            : `<button class="primary" data-action="${item.proposed_at ? 'unpropose-saved' : 'propose-saved'}" data-id="${escapeHtml(item.id)}" ${activeRound() ? 'disabled' : ''}>${item.proposed_at ? 'Vorschlag zurückziehen' : 'Vorschlagen'}</button>`}
             <button class="secondary" data-action="delete-saved" data-id="${escapeHtml(item.id)}">Aus Merkliste löschen</button>
           </div>
         </article>`).join('')
@@ -927,8 +946,7 @@
     openModal('startModal', opener);
   }
 
-  function openCreateModal(event, mode = 'group') {
-    $('#creatorName').value = currentMember?.display_name || '';
+  function openCreateModal(event, mode = 'proposal') {
     $('#createMode').value = mode;
     updateCreateMode();
     openModal('createModal', event?.currentTarget);
@@ -936,13 +954,12 @@
 
   function updateCreateMode() {
     const mode = $('#createMode').value;
-    $('#creatorNameField').hidden = mode !== 'group';
-    $('#saveCreate').textContent = mode === 'saved' ? 'Auf Merkliste speichern' : mode === 'neutral' ? 'Neutrale Fressung anlegen' : 'Fressung anlegen';
+    $('#saveCreate').textContent = mode === 'saved' ? 'Auf Merkliste speichern' : mode === 'neutral' ? 'Neutrale Fressung anlegen' : 'Vorschlagen';
     $('#createDescription').textContent = mode === 'saved'
-      ? 'Nur du siehst diesen Eintrag in deiner Merkliste. Die Gruppe sieht ihn erst nach dem Freigeben.'
+      ? 'Nur du siehst diesen Eintrag in deiner Merkliste. Die Gruppe sieht ihn erst, wenn du ihn vorschlägst.'
       : mode === 'neutral'
         ? 'Ohne Vorschlag und ohne persönliche Statistik. Jede aktive Person kann die Fressung starten.'
-        : 'Die Bewertung beginnt erst nach dem gemeinsamen Start.';
+        : 'Das Restaurant landet auf deiner Merkliste und ist dein Vorschlag für die nächste Fressung. Pro Person gibt es einen Vorschlag, ein bisheriger wird ersetzt.';
   }
 
   function clearCreateForm() {
@@ -950,7 +967,7 @@
     $('#mealPlace').value = '';
     $('#mapsUrl').value = '';
     $('#note').value = '';
-    $('#createMode').value = 'group';
+    $('#createMode').value = 'proposal';
     updateCreateMode();
     resetRestaurantSearch();
   }
@@ -1034,19 +1051,33 @@
     button.disabled = true;
     try {
       const mode = $('#createMode').value;
-      if (mode === 'saved') {
-        const {error} = await supabase.from('saved_restaurants').insert({
+      if (mode !== 'neutral') {
+        const {data: created, error} = await supabase.from('saved_restaurants').insert({
           member_id: currentMember.id,
           restaurant_name: restaurant,
           place,
           maps_url: mapsUrl || null,
           note: $('#note').value.trim() || null
-        });
+        }).select('id').single();
         if (error) throw new Error(databaseErrorMessage('Restaurant konnte nicht auf der Merkliste gespeichert werden', error));
+        if (mode === 'proposal') {
+          const {error: proposeError} = await supabase.rpc('propose_saved_restaurant', {
+            p_saved_restaurant_id: created.id,
+            p_member_id: currentMember.id
+          });
+          if (proposeError) {
+            closeModal('createModal');
+            clearCreateForm();
+            await refreshAndRender();
+            throw new Error(databaseErrorMessage('Das Restaurant liegt auf deiner Merkliste, konnte aber nicht vorgeschlagen werden', proposeError));
+          }
+        }
         closeModal('createModal');
         clearCreateForm();
         await refreshAndRender();
-        toast('Restaurant auf deiner Merkliste gespeichert. Nur du siehst es.');
+        toast(mode === 'proposal'
+          ? 'Vorschlag eingetragen und auf deiner Merkliste gespeichert.'
+          : 'Restaurant auf deiner Merkliste gespeichert. Nur du siehst es.');
         return;
       }
       const {error} = await supabase.from('meals').insert({
@@ -1054,17 +1085,15 @@
         place,
         maps_url: mapsUrl || null,
         note: $('#note').value.trim() || null,
-        creator_member_id: mode === 'neutral' ? null : currentMember.id,
-        is_neutral: mode === 'neutral',
+        creator_member_id: null,
+        is_neutral: true,
         status: 'waiting'
       });
       if (error) throw new Error(databaseErrorMessage('Fressung konnte nicht angelegt werden', error));
       closeModal('createModal');
       clearCreateForm();
       await refreshAndRender();
-      toast(mode === 'neutral'
-        ? 'Neutrale Fressung angelegt. Jedes aktive Mitglied kann sie starten.'
-        : 'Fressung angelegt und für die Gruppe bereitgestellt.');
+      toast('Neutrale Fressung angelegt. Jedes aktive Mitglied kann sie starten.');
     } catch (error) {
       toast(error.message, {error: true});
     } finally {
@@ -1111,22 +1140,6 @@
     if (error) toast(authErrorMessage(error), {error: true});
   }
 
-  async function shareSavedRestaurant(id) {
-    const item = savedRestaurants.find(entry => entry.id === id && entry.member_id === currentMember.id);
-    if (!item || item.shared_at) return;
-    try {
-      const {error} = await supabase.rpc('share_saved_restaurant', {
-        p_saved_restaurant_id: item.id,
-        p_member_id: currentMember.id
-      });
-      if (error) throw new Error(databaseErrorMessage('Restaurant konnte nicht freigegeben werden', error));
-      await refreshAndRender();
-      toast('Restaurant mit der Gruppe geteilt und als ausstehende Fressung angelegt.');
-    } catch (error) {
-      toast(error.message, {error: true});
-    }
-  }
-
   async function deleteSavedRestaurant(id) {
     const item = savedRestaurants.find(entry => entry.id === id && entry.member_id === currentMember.id);
     if (!item) return;
@@ -1150,10 +1163,10 @@
     if (action === 'start' && meal) openStart(meal, target);
     if (action === 'rate' && meal) openRating(meal, target);
     if (action === 'details' && meal) renderDetails(meal);
-    if (action === 'share-saved') void shareSavedRestaurant(target.dataset.id);
     if (action === 'delete-saved') void deleteSavedRestaurant(target.dataset.id);
     if (action === 'propose-saved') void setProposed(target.dataset.id, true);
     if (action === 'unpropose-saved') void setProposed(target.dataset.id, false);
+    if (action === 'proposal-details') openProposalDetails(target.dataset.id, target);
     if (action === 'open-decide') openModal('decideModal', target);
     if (action === 'vote') void runDecision('cast_decision_vote', {p_round_id: activeRound()?.id, p_member_id: currentMember.id, p_saved_restaurant_id: target.dataset.id}, 'Deine Stimme wurde gespeichert.', 'Stimme konnte nicht gespeichert werden');
     if (action === 'finish-vote') void runDecision('finish_decision_vote', {p_round_id: target.dataset.id, p_member_id: currentMember.id}, 'Abstimmung beendet. Die Fressung steht bei den ausstehenden Fressungen.', 'Abstimmung konnte nicht beendet werden');
@@ -1300,7 +1313,7 @@
 
   function configureCreateForm() {
     $('#createModal .form-grid').innerHTML = `
-      <div class="field full"><label for="createMode">Was möchtest du anlegen?</label><select id="createMode"><option value="group">Fressung für die Gruppe vorschlagen</option><option value="neutral">Neutrale Fressung ohne persönlichen Vorschlag</option><option value="saved">Privat auf meiner Merkliste speichern</option></select></div>
+      <div class="field full"><label for="createMode">Was möchtest du anlegen?</label><select id="createMode"><option value="proposal">Als Vorschlag für die nächste Fressung (landet auch auf meiner Merkliste)</option><option value="saved">Nur privat auf meiner Merkliste speichern</option><option value="neutral">Neutrale Fressung ohne persönlichen Vorschlag</option></select></div>
       <section class="field full restaurant-search" aria-labelledby="restaurantSearchTitle">
         <div class="restaurant-search-header">
           <div><span class="eyebrow">Restaurant finden</span><h3 id="restaurantSearchTitle">Wo soll es hingehen?</h3><p class="small">Suche einen Ort aus und wir übernehmen Name, Adresse und Kartenlink.</p></div>
@@ -1324,7 +1337,6 @@
       <div class="field"><label for="mealPlace">Ort</label><input id="mealPlace" maxlength="200" placeholder="z. B. Berlin-Kreuzberg" required></div>
       <div class="field full"><label for="mapsUrl" id="mapsUrlLabel">OpenStreetMap-Link (optional)</label><input id="mapsUrl" type="url" placeholder="https://www.openstreetmap.org/..."></div>
       <div class="field full"><label for="note">Notiz für die Gruppe (optional)</label><textarea id="note" maxlength="2000" placeholder="Warum müssen wir genau dort hin?"></textarea></div>`;
-    $('#createModal .form-grid').insertAdjacentHTML('beforeend', '<div class="field full" id="creatorNameField"><label for="creatorName">Ersteller · dein ausgewähltes Profil</label><input id="creatorName" value="" disabled></div>');
   }
 
   function normalizedSearchQuery(query) {
