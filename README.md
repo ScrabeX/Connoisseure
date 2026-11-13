@@ -61,6 +61,8 @@ Die kurzen Viewport-Checks simulieren den verbleibenden Platz bei geöffneter Bi
 
 ## Veröffentlichung mit GitHub Pages
 
+Beim Deploy hängt der Workflow die Commit-ID als Version an `styles.css` und `app.js` (`?v=<SHA>`), damit Browser nach jedem Release sofort die neuen Dateien laden und niemand den Cache leeren muss. Nur `index.html` selbst kann bis zu etwa 10 Minuten zwischengespeichert bleiben.
+
 1. In GitHub **Settings → Pages** öffnen.
 2. Unter **Build and deployment → Source** die Option **GitHub Actions** auswählen.
 3. Änderungen nach `main` pushen. Der Workflow **Deploy static site to GitHub Pages** veröffentlicht die Seite; alternativ lässt er sich unter **Actions** manuell starten.
