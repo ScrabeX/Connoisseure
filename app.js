@@ -569,7 +569,11 @@
       const mine = myVote?.saved_restaurant_id === item.id;
       return `<article class="pending decision-item">
         <div class="pending-top"><div><h3>${escapeHtml(item.restaurant_name)}</h3><p>${escapeHtml(item.place || 'Ort nicht angegeben')} · vorgeschlagen von ${escapeHtml(proposer?.display_name || 'Unbekannt')}${item.member_id === lastId ? ' · war zuletzt dran' : ''}</p></div>${round ? `<span class="status ${mine ? 'complete' : ''}">${votes} ${votes === 1 ? 'Stimme' : 'Stimmen'}</span>` : ''}</div>
-        ${round ? `<div class="pending-actions"><button class="${mine ? 'secondary' : 'primary'}" data-action="vote" data-id="${escapeHtml(item.id)}">${mine ? 'Deine Stimme' : 'Dafür stimmen'}</button></div>` : ''}
+        ${round
+          ? `<div class="pending-actions"><button class="${mine ? 'secondary' : 'primary'}" data-action="vote" data-id="${escapeHtml(item.id)}">${mine ? 'Deine Stimme' : 'Dafür stimmen'}</button></div>`
+          : item.member_id === currentMember.id
+            ? `<div class="pending-actions"><button class="secondary" data-action="unpropose-saved" data-id="${escapeHtml(item.id)}">Vorschlag zurückziehen</button></div>`
+            : ''}
       </article>`;
     }).join('');
     let actions = '';
