@@ -454,7 +454,7 @@
     let action = '';
     if (meal.status === 'waiting') {
       action = canStart
-        ? `<button class="start-btn" data-action="start" data-id="${escapeHtml(meal.id)}">${icon('arrow')}Fressung starten</button>`
+        ? `<button class="start-btn" data-action="start" data-id="${escapeHtml(meal.id)}">${icon('arrow')}Fressung starten</button><button class="secondary" data-action="cancel-meal" data-id="${escapeHtml(meal.id)}">Fressung abbrechen</button>`
         : '<span class="status">Wartet auf den Ersteller</span>';
     } else if (selected && !hasRated) {
       action = `<button class="rate-btn" data-action="rate" data-id="${escapeHtml(meal.id)}">Bewerten</button>`;
@@ -605,6 +605,17 @@
       <p><b>Notiz</b><br>${item.note ? escapeHtml(item.note) : '<span class="small">Keine Notiz hinterlegt.</span>'}</p>
       ${link ? `<p><a class="maps-link" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Kartenlink öffnen ↗</a></p>` : ''}`;
     openModal('proposalModal', opener);
+  }
+
+  async function cancelMeal(meal) {
+    const neutral = isNeutralMeal(meal);
+    const question = neutral
+      ? `Neutrale Fressung „${meal.restaurant_name}“ wirklich abbrechen? Sie wird gelöscht.`
+      : `Fressung „${meal.restaurant_name}“ wirklich abbrechen? Das Restaurant landet wieder auf deiner Merkliste.`;
+    if (!window.confirm(question)) return;
+    await runDecision('cancel_waiting_meal', {p_meal_id: meal.id, p_actor_member_id: currentMember.id},
+      neutral ? 'Fressung abgebrochen.' : 'Fressung abgebrochen. Das Restaurant liegt wieder auf deiner Merkliste.',
+      'Fressung konnte nicht abgebrochen werden');
   }
 
   async function runDecision(rpcName, args, successMessage, failureMessage) {
@@ -951,11 +962,13 @@
 
   function updateCreateMode() {
     const mode = $('#createMode').value;
-    $('#saveCreate').textContent = mode === 'saved' ? 'Auf Merkliste speichern' : mode === 'neutral' ? 'Neutrale Fressung anlegen' : 'Vorschlagen';
+    $('#saveCreate').textContent = mode === 'saved' ? 'Auf Merkliste speichern' : mode === 'neutral' ? 'Neutrale Fressung anlegen' : mode === 'direct' ? 'Fressung anlegen' : 'Vorschlagen';
     $('#createDescription').textContent = mode === 'saved'
       ? 'Nur du siehst diesen Eintrag in deiner Merkliste. Die Gruppe sieht ihn erst, wenn du ihn vorschlägst.'
       : mode === 'neutral'
         ? 'Ohne Vorschlag und ohne persönliche Statistik. Jede aktive Person kann die Fressung starten.'
+        : mode === 'direct'
+        ? 'Ohne Abstimmung: Die Fressung steht sofort bei den ausstehenden Fressungen und du startest sie. Nur nutzen, wenn ihr euch schon geeinigt habt.'
         : 'Das Restaurant landet auf deiner Merkliste und ist dein Vorschlag für die nächste Fressung. Pro Person gibt es einen Vorschlag, ein bisheriger wird ersetzt.';
   }
 
@@ -1048,7 +1061,7 @@
     button.disabled = true;
     try {
       const mode = $('#createMode').value;
-      if (mode !== 'neutral') {
+      if (mode === 'proposal' || mode === 'saved') {
         const {data: created, error} = await supabase.from('saved_restaurants').insert({
           member_id: currentMember.id,
           restaurant_name: restaurant,
@@ -1082,15 +1095,17 @@
         place,
         maps_url: mapsUrl || null,
         note: $('#note').value.trim() || null,
-        creator_member_id: null,
-        is_neutral: true,
+        creator_member_id: mode === 'neutral' ? null : currentMember.id,
+        is_neutral: mode === 'neutral',
         status: 'waiting'
       });
       if (error) throw new Error(databaseErrorMessage('Fressung konnte nicht angelegt werden', error));
       closeModal('createModal');
       clearCreateForm();
       await refreshAndRender();
-      toast('Neutrale Fressung angelegt. Jedes aktive Mitglied kann sie starten.');
+      toast(mode === 'neutral'
+        ? 'Neutrale Fressung angelegt. Jedes aktive Mitglied kann sie starten.'
+        : 'Fressung angelegt. Du kannst sie jetzt starten.');
     } catch (error) {
       toast(error.message, {error: true});
     } finally {
@@ -1158,6 +1173,7 @@
     const action = target.dataset.action;
     const meal = mealById(target.dataset.id);
     if (action === 'start' && meal) openStart(meal, target);
+    if (action === 'cancel-meal' && meal) void cancelMeal(meal);
     if (action === 'rate' && meal) openRating(meal, target);
     if (action === 'details' && meal) renderDetails(meal);
     if (action === 'delete-saved') void deleteSavedRestaurant(target.dataset.id);
@@ -1310,7 +1326,7 @@
 
   function configureCreateForm() {
     $('#createModal .form-grid').innerHTML = `
-      <div class="field full"><label for="createMode">Was möchtest du anlegen?</label><select id="createMode"><option value="proposal">Als Vorschlag für die nächste Fressung (landet auch auf meiner Merkliste)</option><option value="saved">Nur privat auf meiner Merkliste speichern</option><option value="neutral">Neutrale Fressung ohne persönlichen Vorschlag</option></select></div>
+      <div class="field full"><label for="createMode">Was möchtest du anlegen?</label><select id="createMode"><option value="proposal">Als Vorschlag für die nächste Fressung (landet auch auf meiner Merkliste)</option><option value="saved">Nur privat auf meiner Merkliste speichern</option><option value="neutral">Neutrale Fressung ohne persönlichen Vorschlag</option><option value="direct">Ohne Abstimmung: Fressung direkt anlegen (wir haben uns schon geeinigt)</option></select></div>
       <section class="field full restaurant-search" aria-labelledby="restaurantSearchTitle">
         <div class="restaurant-search-header">
           <div><span class="eyebrow">Restaurant finden</span><h3 id="restaurantSearchTitle">Wo soll es hingehen?</h3><p class="small">Suche einen Ort aus und wir übernehmen Name, Adresse und Kartenlink.</p></div>

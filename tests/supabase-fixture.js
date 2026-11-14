@@ -92,6 +92,19 @@
         return created.id;
       };
       const running = () => db.decision_rounds.find(round => round.status === 'voting');
+      if (name === 'cancel_waiting_meal') {
+        if (!meal || meal.status !== 'waiting' || (!meal.is_neutral && meal.creator_member_id !== args.p_actor_member_id)) {
+          return result(null, {message: 'Only the creator may cancel a waiting meal.'});
+        }
+        if (!meal.is_neutral) {
+          const saved = db.saved_restaurants.find(entry => entry.member_id === meal.creator_member_id
+            && entry.restaurant_name === meal.restaurant_name && entry.place === meal.place);
+          if (saved) { saved.shared_at = null; saved.proposed_at = null; }
+          else db.saved_restaurants.unshift({id: `restored-${meal.id}`, member_id: meal.creator_member_id, restaurant_name: meal.restaurant_name, place: meal.place, maps_url: meal.maps_url, note: meal.note, created_at: new Date().toISOString(), shared_at: null, proposed_at: null});
+        }
+        db.meals = db.meals.filter(entry => entry.id !== meal.id);
+        return result(null);
+      }
       if (name === 'propose_saved_restaurant') {
         const saved = db.saved_restaurants.find(entry => entry.id === args.p_saved_restaurant_id
           && entry.member_id === args.p_member_id && !entry.shared_at);
