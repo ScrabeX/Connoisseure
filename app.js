@@ -565,10 +565,9 @@
     const activeCount = members.filter(member => member.is_active).length;
     const items = proposals.map(item => {
       const proposer = memberById(item.member_id);
-      const votes = roundVotes.filter(vote => vote.saved_restaurant_id === item.id).length;
       const mine = myVote?.saved_restaurant_id === item.id;
       return `<article class="pending decision-item">
-        <div class="pending-top"><div><h3>${escapeHtml(item.restaurant_name)}</h3><p>${escapeHtml(item.place || 'Ort nicht angegeben')} · vorgeschlagen von ${escapeHtml(proposer?.display_name || 'Unbekannt')}${item.member_id === lastId ? ' · war zuletzt dran' : ''}</p></div>${round ? `<span class="status ${mine ? 'complete' : ''}">${votes} ${votes === 1 ? 'Stimme' : 'Stimmen'}</span>` : ''}</div>
+        <div class="pending-top"><div><h3>${escapeHtml(item.restaurant_name)}</h3><p>${escapeHtml(item.place || 'Ort nicht angegeben')}${round ? '' : ` · vorgeschlagen von ${escapeHtml(proposer?.display_name || 'Unbekannt')}${item.member_id === lastId ? ' · war zuletzt dran' : ''}`}</p></div>${mine ? '<span class="status complete">Deine Stimme</span>' : ''}</div>
         <div class="pending-actions">${round
           ? `<button class="${mine ? 'secondary' : 'primary'}" data-action="vote" data-id="${escapeHtml(item.id)}">${mine ? 'Deine Stimme' : 'Dafür stimmen'}</button>`
           : item.member_id === currentMember.id
@@ -604,7 +603,7 @@
     $('#proposalTitle').textContent = item.restaurant_name;
     $('#proposalBody').innerHTML = `
       <p><b>Ort</b><br>${escapeHtml(item.place || 'Ort nicht angegeben')}</p>
-      <p><b>Vorgeschlagen von</b><br>${escapeHtml(proposer?.display_name || 'Unbekannt')}${item.member_id === lastProposerId() ? ' · war zuletzt dran' : ''}</p>
+      ${activeRound() ? '<p class="small">Wer das vorgeschlagen hat, wird nach der Abstimmung gezeigt.</p>' : `<p><b>Vorgeschlagen von</b><br>${escapeHtml(proposer?.display_name || 'Unbekannt')}${item.member_id === lastProposerId() ? ' · war zuletzt dran' : ''}</p>`}
       <p><b>Notiz</b><br>${item.note ? escapeHtml(item.note) : '<span class="small">Keine Notiz hinterlegt.</span>'}</p>
       ${link ? `<p><a class="maps-link" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Kartenlink öffnen ↗</a></p>` : ''}`;
     openModal('proposalModal', opener);

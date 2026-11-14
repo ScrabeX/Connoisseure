@@ -441,7 +441,14 @@ async function rateAll(page, value) {
       await page.locator('#proposalModal .modal-actions [data-close]').click();
       await page.click('#openDecide');
       await page.click('#startVote');
+      await page.locator(`[data-action="vote"][data-id="${proposal.id}"]`).waitFor();
+      assert.doesNotMatch(await page.locator('#decisionList').textContent(), /vorgeschlagen von|zuletzt dran|\d+ Stimmen?/, 'proposer and vote counts stay hidden while voting');
       await page.locator(`[data-action="vote"][data-id="${proposal.id}"]`).click();
+      await page.locator('#decisionList .status.complete').waitFor();
+      assert.match(await page.locator('#decisionList').textContent(), /Deine Stimme/);
+      await page.locator(`#decisionList [data-action="proposal-details"][data-id="${proposal.id}"]`).click();
+      assert.doesNotMatch(await page.locator('#proposalBody').textContent(), /Vorgeschlagen von/);
+      await page.locator('#proposalModal .modal-actions [data-close]').click();
       await page.locator('[data-action="finish-vote"]').click();
       await page.locator('#decisionList .empty-state').waitFor();
       await changeMember(page, 'm1');
