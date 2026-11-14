@@ -535,6 +535,27 @@ async function rateAll(page, value) {
     } finally { await context.close(); }
   });
 
+  await check('direct meal without a vote is created for the creator and can be started by them only', async () => {
+    const {page, context} = await open();
+    try {
+      await page.click('#openCreate');
+      await page.selectOption('#createMode', 'direct');
+      assert.equal(await page.locator('#saveCreate').textContent(), 'Fressung anlegen');
+      await page.fill('#restaurant', 'Direkt geeinigt');
+      await page.fill('#mealPlace', 'Berlin');
+      await page.click('#saveCreate');
+      await page.locator('dialog[open]').waitFor({state: 'hidden'});
+      const direct = await page.evaluate(() => window.__fixture.db.meals.find(meal => meal.restaurant_name === 'Direkt geeinigt'));
+      assert.equal(direct.creator_member_id, 'm1');
+      assert.equal(direct.is_neutral, false);
+      assert.equal(direct.status, 'waiting');
+      assert.equal(await page.evaluate(() => window.__fixture.db.saved_restaurants.some(entry => entry.restaurant_name === 'Direkt geeinigt')), false);
+      await page.locator(`[data-action="start"][data-id="${direct.id}"]`).waitFor();
+      await changeMember(page, 'm2');
+      assert.equal(await page.locator(`[data-action="start"][data-id="${direct.id}"]`).count(), 0);
+    } finally { await context.close(); }
+  });
+
   await check('saved restaurants stay profile-specific; one proposal per person can be set, replaced, withdrawn and deleted', async () => {
     const {page, context} = await open();
     try {
