@@ -439,6 +439,8 @@ async function rateAll(page, value) {
       await page.locator(`#decisionList [data-action="proposal-details"][data-id="${proposal.id}"]`).click();
       assert.match(await page.locator('#proposalModal').textContent(), /Neue lokale Empfehlung/);
       await page.locator('#proposalModal .modal-actions [data-close]').click();
+      assert.doesNotMatch(await page.locator('#decisionList').textContent(), /vorgeschlagen von|zuletzt dran/, 'proposer is never shown before the decision');
+      assert.match(await page.locator('#decisionList').textContent(), /Neue lokale Empfehlung/);
       await page.click('#openDecide');
       await page.click('#startVote');
       await page.locator(`[data-action="vote"][data-id="${proposal.id}"]`).waitFor();

@@ -564,10 +564,9 @@
     const myVote = roundVotes.find(vote => vote.member_id === currentMember.id);
     const activeCount = members.filter(member => member.is_active).length;
     const items = proposals.map(item => {
-      const proposer = memberById(item.member_id);
       const mine = myVote?.saved_restaurant_id === item.id;
       return `<article class="pending decision-item">
-        <div class="pending-top"><div><h3>${escapeHtml(item.restaurant_name)}</h3><p>${escapeHtml(item.place || 'Ort nicht angegeben')}${round ? '' : ` · vorgeschlagen von ${escapeHtml(proposer?.display_name || 'Unbekannt')}${item.member_id === lastId ? ' · war zuletzt dran' : ''}`}</p></div>${mine ? '<span class="status complete">Deine Stimme</span>' : ''}</div>
+        <div class="pending-top"><div><h3>${escapeHtml(item.restaurant_name)}</h3><p>${escapeHtml(item.place || 'Ort nicht angegeben')}</p></div>${mine ? '<span class="status complete">Deine Stimme</span>' : item.member_id === currentMember.id ? '<span class="status">Dein Vorschlag</span>' : ''}</div>
         <div class="pending-actions">${round
           ? `<button class="${mine ? 'secondary' : 'primary'}" data-action="vote" data-id="${escapeHtml(item.id)}">${mine ? 'Deine Stimme' : 'Dafür stimmen'}</button>`
           : item.member_id === currentMember.id
@@ -598,12 +597,11 @@
   function openProposalDetails(id, opener) {
     const item = proposals.find(entry => entry.id === id);
     if (!item) return;
-    const proposer = memberById(item.member_id);
     const link = validMapsUrl(item.maps_url);
     $('#proposalTitle').textContent = item.restaurant_name;
     $('#proposalBody').innerHTML = `
       <p><b>Ort</b><br>${escapeHtml(item.place || 'Ort nicht angegeben')}</p>
-      ${activeRound() ? '<p class="small">Wer das vorgeschlagen hat, wird nach der Abstimmung gezeigt.</p>' : `<p><b>Vorgeschlagen von</b><br>${escapeHtml(proposer?.display_name || 'Unbekannt')}${item.member_id === lastProposerId() ? ' · war zuletzt dran' : ''}</p>`}
+      <p class="small">${item.member_id === currentMember.id ? 'Das ist dein Vorschlag.' : 'Wer das vorgeschlagen hat, wird erst nach der Entscheidung gezeigt.'}</p>
       <p><b>Notiz</b><br>${item.note ? escapeHtml(item.note) : '<span class="small">Keine Notiz hinterlegt.</span>'}</p>
       ${link ? `<p><a class="maps-link" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Kartenlink öffnen ↗</a></p>` : ''}`;
     openModal('proposalModal', opener);
