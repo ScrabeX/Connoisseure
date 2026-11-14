@@ -535,7 +535,7 @@ async function rateAll(page, value) {
     } finally { await context.close(); }
   });
 
-  await check('direct meal without a vote is created for the creator and can be started by them only', async () => {
+  await check('direct meal without a vote is created for the creator, started or cancelled by them only', async () => {
     const {page, context} = await open();
     try {
       await page.click('#openCreate');
@@ -553,6 +553,16 @@ async function rateAll(page, value) {
       await page.locator(`[data-action="start"][data-id="${direct.id}"]`).waitFor();
       await changeMember(page, 'm2');
       assert.equal(await page.locator(`[data-action="start"][data-id="${direct.id}"]`).count(), 0);
+      assert.equal(await page.locator(`[data-action="cancel-meal"][data-id="${direct.id}"]`).count(), 0, 'only the creator may cancel');
+      await changeMember(page, 'm1');
+      page.once('dialog', dialog => dialog.dismiss());
+      await page.locator(`[data-action="cancel-meal"][data-id="${direct.id}"]`).click();
+      assert.equal(await page.evaluate(id => window.__fixture.db.meals.some(meal => meal.id === id), direct.id), true, 'dismissing the confirmation keeps the meal');
+      page.once('dialog', dialog => dialog.accept());
+      await page.locator(`[data-action="cancel-meal"][data-id="${direct.id}"]`).click();
+      await page.locator(`[data-action="start"][data-id="${direct.id}"]`).waitFor({state: 'detached'});
+      assert.equal(await page.evaluate(() => window.__fixture.db.meals.some(meal => meal.restaurant_name === 'Direkt geeinigt')), false);
+      assert.equal(await page.evaluate(() => window.__fixture.db.saved_restaurants.some(entry => entry.restaurant_name === 'Direkt geeinigt' && !entry.shared_at && !entry.proposed_at)), true, 'restaurant returns to the Merkliste');
     } finally { await context.close(); }
   });
 

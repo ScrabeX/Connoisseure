@@ -454,7 +454,7 @@
     let action = '';
     if (meal.status === 'waiting') {
       action = canStart
-        ? `<button class="start-btn" data-action="start" data-id="${escapeHtml(meal.id)}">${icon('arrow')}Fressung starten</button>`
+        ? `<button class="start-btn" data-action="start" data-id="${escapeHtml(meal.id)}">${icon('arrow')}Fressung starten</button><button class="secondary" data-action="cancel-meal" data-id="${escapeHtml(meal.id)}">Fressung abbrechen</button>`
         : '<span class="status">Wartet auf den Ersteller</span>';
     } else if (selected && !hasRated) {
       action = `<button class="rate-btn" data-action="rate" data-id="${escapeHtml(meal.id)}">Bewerten</button>`;
@@ -605,6 +605,17 @@
       <p><b>Notiz</b><br>${item.note ? escapeHtml(item.note) : '<span class="small">Keine Notiz hinterlegt.</span>'}</p>
       ${link ? `<p><a class="maps-link" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Kartenlink öffnen ↗</a></p>` : ''}`;
     openModal('proposalModal', opener);
+  }
+
+  async function cancelMeal(meal) {
+    const neutral = isNeutralMeal(meal);
+    const question = neutral
+      ? `Neutrale Fressung „${meal.restaurant_name}“ wirklich abbrechen? Sie wird gelöscht.`
+      : `Fressung „${meal.restaurant_name}“ wirklich abbrechen? Das Restaurant landet wieder auf deiner Merkliste.`;
+    if (!window.confirm(question)) return;
+    await runDecision('cancel_waiting_meal', {p_meal_id: meal.id, p_actor_member_id: currentMember.id},
+      neutral ? 'Fressung abgebrochen.' : 'Fressung abgebrochen. Das Restaurant liegt wieder auf deiner Merkliste.',
+      'Fressung konnte nicht abgebrochen werden');
   }
 
   async function runDecision(rpcName, args, successMessage, failureMessage) {
@@ -1162,6 +1173,7 @@
     const action = target.dataset.action;
     const meal = mealById(target.dataset.id);
     if (action === 'start' && meal) openStart(meal, target);
+    if (action === 'cancel-meal' && meal) void cancelMeal(meal);
     if (action === 'rate' && meal) openRating(meal, target);
     if (action === 'details' && meal) renderDetails(meal);
     if (action === 'delete-saved') void deleteSavedRestaurant(target.dataset.id);
